@@ -1,0 +1,20 @@
+# Phase 2 — Optional TrOCR dependencies for the OCR service.
+#
+# Install alongside requirements.txt when you want handwritten recognition:
+#     pip install -r requirements.txt
+#     pip install -r requirements-ocr.txt
+#
+# These are intentionally NOT in requirements.txt:
+#   - the Phase-1 skeleton must build / test without them
+#   - microsoft/trocr-base-handwritten is ~1.4 GB on disk; many
+#     deployments skip it and route to other backends
+#   - CI runners on low-RAM machines can stay slim
+
+# HuggingFace model + tokenizer loader for TrOCR.
+transformers>=4.35.0
+tokenizers>=0.15.0
+
+# PyTorch CPU build (matches TrOCR model card recommendations).
+# Override with a CUDA build in your deployment if you have a GPU:
+#     pip install torch --index-url https://download.pytorch.org/whl/cu121
+torch>=2.1.0,<3.0.0

@@ -668,8 +668,8 @@ function buildWorksheetAndKey(setNum){
     '<div class="reg-sq bl"></div><div class="reg-sq br"></div>';
   const pid='SET-'+String(setNum).padStart(5,'0');
 
-  const worksheetHtml='<div class="page-wrapper">'+reg+
-    '<div class="page" id="page-set-'+setNum+'">'+
+  const worksheetHtml='<div class="page-wrapper">'+
+    '<div class="page" id="page-set-'+setNum+'">'+reg+
     '<div class="ws-header">'+
       '<div class="ws-title">CLASS 2 — MATHEMATICS PRACTICE WORKSHEET</div>'+
       '<div class="ws-sub">Set '+setNum+'</div>'+
@@ -809,7 +809,18 @@ function buildMasterJSON(setNum,liveCoords){
     }));
     return {section:sec.section,note:sec.note||null,items};
   });
-  const regCoords=liveCoords?{tl:liveCoords['reg_sq_tl']||null,tr:liveCoords['reg_sq_tr']||null,bl:liveCoords['reg_sq_bl']||null,br:liveCoords['reg_sq_br']||null}:null;
+  // Per-A4-page registration marks: 5mm black squares at the 4 corners of every
+  // physical page (210mm x 297mm). The rendered PDF embeds one set per page, and the
+  // single MasterKey describes one such page so the OCR pipeline can align a
+  // per-page scan against an A4 geometry. The live DOM reg-sq coords still feed
+  // a fallback in case future readers need them.
+  const _REG_SQ_MM = 5;
+  const regCoords = {
+    tl: {x_min: 0,                 y_min: 0,                 x_max: _REG_SQ_MM,        y_max: _REG_SQ_MM},
+    tr: {x_min: 210 - _REG_SQ_MM,  y_min: 0,                 x_max: 210,              y_max: _REG_SQ_MM},
+    bl: {x_min: 0,                 y_min: 297 - _REG_SQ_MM,  x_max: _REG_SQ_MM,        y_max: 297},
+    br: {x_min: 210 - _REG_SQ_MM,  y_min: 297 - _REG_SQ_MM,  x_max: 210,              y_max: 297},
+  };
   const coordsBySection=liveCoords?(()=>{
     const grouped={};
     Object.entries(liveCoords).forEach(([k,v])=>{
@@ -1183,8 +1194,10 @@ async function buildPdfBlobForSet(setIndex) {
       cursorPx    = blk.bottom;
     }
   }
-  // Close the last page
-  pages.push({ startPx: pageStartPx, endPx: cursorPx });
+  // Close the last page. Extend the bottom to the full canvas height so that
+  // bottom-corner registration squares (which sit in the empty band below
+  // .ws-footer) are included in the final PDF page's slice.
+  pages.push({ startPx: pageStartPx, endPx: fullCanvas.height });
 
   /* ── 8. Build jsPDF by cropping the single canvas per page ── */
   const pdf = new window.jspdf.jsPDF({ unit: 'mm', format: 'a4' });
@@ -1207,6 +1220,15 @@ async function buildPdfBlobForSet(setIndex) {
     if (idx > 0) pdf.addPage();
     // Place with top margin; image fills full width
     pdf.addImage(imgData, 'JPEG', 0, PDF_MARGIN_MM, PDF_A4_W_MM, sliceMM);
+
+    // Draw 4 black 5x5mm registration squares at the corners of every A4 page.
+    // Coordinates match the MasterKey's registration_marks per-page constants.
+    const REG_SQ_MM = 5;
+    pdf.setFillColor(0, 0, 0);
+    pdf.rect(0,                 0,                 REG_SQ_MM, REG_SQ_MM, 'F'); // TL
+    pdf.rect(PDF_A4_W_MM - REG_SQ_MM, 0,                 REG_SQ_MM, REG_SQ_MM, 'F'); // TR
+    pdf.rect(0,                 PDF_A4_H_MM - REG_SQ_MM, REG_SQ_MM, REG_SQ_MM, 'F'); // BL
+    pdf.rect(PDF_A4_W_MM - REG_SQ_MM, PDF_A4_H_MM - REG_SQ_MM, REG_SQ_MM, REG_SQ_MM, 'F'); // BR
 
     // Immediately clear the temp canvas to free memory
     tmpCtx.clearRect(0, 0, canvasW, sliceH);

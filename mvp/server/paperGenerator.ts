@@ -95,6 +95,15 @@ export async function generateDiagnosticPaper({
   const filePath = path.join(OUTPUT_DIR, fileName);
   fs.writeFileSync(filePath, mergedBuffer);
 
+  // Persist one MasterKey JSON per set, reusing the same base filename (no new UUID).
+  // results[i].masterJson is written verbatim — the MasterKey structure is unchanged.
+  const jsonBaseName = fileName.replace(/\.pdf$/, "");
+  for (const r of results) {
+    const masterFileName = `${jsonBaseName}-set${r.index}.json`;
+    const masterFilePath = path.join(OUTPUT_DIR, masterFileName);
+    fs.writeFileSync(masterFilePath, JSON.stringify(r.masterJson, null, 2), "utf8");
+  }
+
   return {
     fileName,
     filePath,

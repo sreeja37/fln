@@ -1,0 +1,22 @@
+# FLN Skeleton OCR Service — Phase 1 dependencies
+#
+# Install with:
+#     python -m venv .venv
+#     source .venv/bin/activate   # or .venv\Scripts\activate on Windows
+#     pip install -r requirements.txt
+#
+# Phase 2 (TrOCR / PaddleOCR) will ship a SEPARATE requirements-ocr.txt so
+# the skeleton stays light. Do not add torch / transformers / onnxruntime /
+# paddlepaddle / easyocr / pytesseract here.
+
+# Image processing
+opencv-python-headless>=4.8.0   # No GUI deps; headless is ~50 MB lighter
+numpy>=1.24.0                  # Required by OpenCV and used directly for homography math
+Pillow>=10.0.0                 # Decode base64 / file uploads into numpy arrays
+
+# HTTP layer (used by server.py — added in Phase 1 Task 7, declared now)
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+
+# Typed I/O models (used by types.py — added in Phase 1 Task 2, declared now)
+pydantic>=2.5.0
