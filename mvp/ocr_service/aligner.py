@@ -226,16 +226,16 @@ def find_registration_squares(binary: np.ndarray) -> list[tuple[float, float]]:
         )
         return []
 
-    # If more than 4 survive (rare), keep the four largest by area.
+    # If more than 4 survive, keep the two candidates with the smallest y
+    # (the top-row marks) and the two with the largest y (the bottom-row
+    # marks).  Within each row, sort by x to distinguish left/right.
+    # This is more robust than "largest by area" when header or footer
+    # content produces similarly-sized contours near the page edges.
     if len(candidates) > 4:
-        # We re-walk contours to keep area ordering; centroids are already
-        # aligned by construction (we appended in contour-iteration order).
-        areas: list[tuple[float, tuple[float, float]]] = []
-        for contour in contours:
-            if _is_candidate_square(contour, image_area):
-                areas.append((cv2.contourArea(contour), _centroid(contour)))
-        areas.sort(key=lambda a: a[0], reverse=True)
-        candidates = [c for _area, c in areas[:4]]
+        by_y = sorted(candidates, key=lambda p: p[1])
+        top_two = sorted(by_y[:2], key=lambda p: p[0])   # smallest-x of smallest-y
+        bot_two = sorted(by_y[-2:], key=lambda p: p[0])  # smallest-x of largest-y
+        candidates = top_two + bot_two
 
     return _sort_corners(candidates)
 

@@ -1164,6 +1164,12 @@ async function buildPdfBlobForSet(setIndex) {
     bottom: Math.round(b.bottom * S),
   }));
 
+  /* ── 5b. Extend canvasBlocks to cover the full canvas height ── */
+  // Prepend a synthetic top band so the page-1 slice starts at y=0 (captures TL+TR).
+  // Append  a synthetic bottom band so the last slice ends at fullCanvas.height (captures BL+BR).
+  canvasBlocks.unshift({ top: 0,                          bottom: canvasBlocks[0].top });
+  canvasBlocks.push(   { top: canvasBlocks[canvasBlocks.length-1].bottom, bottom: fullCanvas.height });
+
   /* ── 6. Usable page height in canvas-px ── */
   const usableHeightMM = PDF_A4_H_MM - 2 * PDF_MARGIN_MM;
   const pageHeightPx   = Math.round(usableHeightMM * canvasPxPerMM);
