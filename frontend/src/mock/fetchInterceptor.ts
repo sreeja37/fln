@@ -609,6 +609,27 @@ export function setupFetchInterceptor() {
         });
       }
 
+      // 17b. POST /api/worksheets/download-grade
+      if (path === '/api/worksheets/download-grade' && method === 'POST') {
+        const { worksheetId } = bodyData;
+        const ws = db.worksheets.find(w => w.id === worksheetId);
+        if (!ws) return errorResponse('Worksheet not found.', 404);
+
+        // Mirror the mock-merge contract: return a stable, grade-scoped URL
+        // (so the UI can show/download it) and trigger the browser print
+        // dialog so the teacher still gets a printable artifact in demo.
+        const classMatch = String(ws.className || '').match(/\d+/);
+        const classNumber = classMatch ? parseInt(classMatch[0], 10) : 1;
+        const fileName = `Grade${classNumber}_Personalized_Worksheets.pdf`;
+        setTimeout(() => window.print(), 100);
+        return jsonResponse({
+          success: true,
+          pdfUrl: `/output/${fileName}`,
+          fileName,
+          totalStudents: 0
+        });
+      }
+
       // 18. POST /api/evaluation/submit
       if (path === '/api/evaluation/submit' && method === 'POST') {
         if (!currentUser) return errorResponse('Unauthorized', 401);

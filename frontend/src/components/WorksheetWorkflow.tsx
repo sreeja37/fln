@@ -22,6 +22,10 @@ export const WorksheetWorkflow: React.FC<WorksheetWorkflowProps> = ({ classGroup
   const [pdfUrl, setPdfUrl] = useState('');
   const [isIframeModalOpen, setIsIframeModalOpen] = useState(false);
 
+  // Download Grade Worksheets (one merged PDF for the whole class)
+  const [gradePdfGenerating, setGradePdfGenerating] = useState(false);
+  const [gradePdfUrl, setGradePdfUrl] = useState('');
+
   // Bulk / individual inputs
   const [studentAnswers, setStudentAnswers] = useState<{ [qId: string]: string }>({});
   const [evaluationResult, setEvaluationResult] = useState<{ report: EvaluationReport } | null>(null);
@@ -130,6 +134,39 @@ export const WorksheetWorkflow: React.FC<WorksheetWorkflowProps> = ({ classGroup
       setError('Network error generating PDF.');
     } finally {
       setPdfGenerating(false);
+    }
+  };
+
+  const downloadGradeWorksheets = async () => {
+    setGradePdfGenerating(true);
+    setError('');
+    try {
+      const res = await fetch('/api/worksheets/download-grade', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ worksheetId: worksheet?.id })
+      });
+      const data = await res.json();
+      if (res.ok && data.success && data.pdfUrl) {
+        setGradePdfUrl(data.pdfUrl);
+        // Trigger the browser download
+        const link = document.createElement('a');
+        link.href = data.pdfUrl;
+        link.download = data.fileName || `Grade_Personalized_Worksheets.pdf`;
+        link.rel = 'noopener noreferrer';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      } else {
+        setError(data.error || 'Failed to generate grade worksheet PDF.');
+      }
+    } catch (err) {
+      setError('Network error generating grade worksheet PDF.');
+    } finally {
+      setGradePdfGenerating(false);
     }
   };
 
@@ -270,6 +307,13 @@ export const WorksheetWorkflow: React.FC<WorksheetWorkflowProps> = ({ classGroup
                     className="bg-zinc-100 hover:bg-zinc-200 text-zinc-800 font-mono text-xs font-semibold px-3 py-1.5 rounded border border-zinc-200 flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
                   >
                     {pdfGenerating ? 'Generating PDF...' : pdfUrl ? '🔄 Regenerate PDF' : '📄 Generate Worksheet PDF'}
+                  </button>
+                  <button
+                    onClick={downloadGradeWorksheets}
+                    disabled={gradePdfGenerating}
+                    className="bg-indigo-600 hover:bg-indigo-700 text-white font-mono text-xs font-semibold px-3 py-1.5 rounded border border-indigo-500 flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
+                  >
+                    {gradePdfGenerating ? 'Generating Grade PDF...' : '📚 Download Grade Worksheets'}
                   </button>
                   <button
                     onClick={() => window.print()}

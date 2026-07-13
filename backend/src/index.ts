@@ -1054,6 +1054,68 @@ async function startServer() {
     }
   });
 
+  // Download all personalized worksheets for a grade as one merged PDF.
+  // Reuses the existing generateDiagnosticPaper pipeline (Puppeteer + pdf-lib)
+  // and renames the resulting file to a stable, grade-scoped filename.
+  app.post('/api/worksheets/download-grade', async (req, res) => {
+    const user = getAuthUser(req);
+    if (!user) return res.status(401).json({ error: 'Unauthorized' });
+
+    const { worksheetId } = req.body;
+    if (!worksheetId) {
+      return res.status(400).json({ error: 'worksheetId is required.' });
+    }
+
+    try {
+      const worksheets = await dbStore.getWorksheets();
+      const ws = worksheets.find(w => w.id === worksheetId);
+      if (!ws) return res.status(404).json({ error: 'Worksheet not found.' });
+
+      // Parse class number from worksheet.className (e.g. "Class 2" -> 2)
+      const classMatch = String(ws.className || '').match(/\d+/);
+      const classNumber = classMatch ? parseInt(classMatch[0], 10) : 1;
+
+      // Resolve the students in this worksheet's class.
+      const allStudents = await dbStore.getStudents();
+      const classStudents = allStudents.filter(
+        s => s.classGroup === ws.className
+          && s.section === ws.section
+          && s.schoolId === ws.schoolId
+      );
+
+      if (classStudents.length === 0) {
+        return res.status(400).json({ error: 'No students found for this worksheet.' });
+      }
+
+      // Reuse the existing pipeline exactly as is. It runs Puppeteer via
+      // worksheetRenderer and merges/stamps per-student PDFs via pdfMerge.
+      const result = await generateDiagnosticPaper({
+        classNumber,
+        students: classStudents.map(s => ({ name: s.name }))
+      });
+
+      // Rename the produced file to the required grade-scoped filename,
+      // preserving the existing rendering output unchanged.
+      const desiredFileName = `Grade${classNumber}_Personalized_Worksheets.pdf`;
+      const desiredFilePath = path.join(path.dirname(result.filePath), desiredFileName);
+      if (fs.existsSync(desiredFilePath)) {
+        fs.unlinkSync(desiredFilePath);
+      }
+      fs.renameSync(result.filePath, desiredFilePath);
+
+      const pdfUrl = `/output/${desiredFileName}`;
+      res.json({
+        success: true,
+        pdfUrl,
+        fileName: desiredFileName,
+        totalStudents: result.totalSets
+      });
+    } catch (err: any) {
+      console.error('Failed to generate grade worksheet PDF:', err);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
   // Submit Completed Worksheet (ICR Structured Ingestion) & Scoring Engine
   app.post('/api/evaluation/submit', async (req, res) => {
     const user = getAuthUser(req);
