@@ -26,6 +26,8 @@ export default function App() {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [currentView, setCurrentView] = useState<'home' | 'login' | 'dashboard'>('home');
   const [activePanel, setActivePanel] = useState<string>('workspace');
+  // Shared teacher class selection — flows into both TeacherDashboard and PanelViews
+  const [teacherClassId, setTeacherClassId] = useState<string>('');
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [toast, setToast] = useState<string | null>(null);
 
@@ -116,7 +118,7 @@ export default function App() {
       case UserRole.SCHOOL:
         return <SchoolDashboard user={currentUser} token={token} />;
       case UserRole.TEACHER:
-        return <TeacherDashboard user={currentUser} token={token} />;
+        return <TeacherDashboard user={currentUser} token={token} teacherClassId={teacherClassId} onTeacherClassIdChange={setTeacherClassId} />;
       case UserRole.VOLUNTEER:
         return <VolunteerDashboard user={currentUser} token={token} />;
       default:
@@ -282,7 +284,7 @@ export default function App() {
 
           {/* Panel data views for all navigation items across roles */}
           {!['workspace', 'logbook', 'tickets', 'calendar', 'settings', 'notifications'].includes(activePanel) && (
-            <PanelViews activePanel={activePanel} currentUser={currentUser} token={token} />
+            <PanelViews activePanel={activePanel} currentUser={currentUser} token={token} teacherClassId={teacherClassId} onTeacherClassIdChange={setTeacherClassId} />
           )}
         </Layout>
       )}

@@ -344,7 +344,10 @@ async function startServer() {
     if (!user) return res.status(401).json({ error: 'Unauthorized' });
 
     const { name, age, classGroup, section, schoolId, aadharNumber } = req.body;
-    if (!name || !age || !classGroup || !section || !schoolId || !aadharNumber) {
+    // section is intentionally optional: the Grade-only roster uses "" for
+    // backwards-compat with the ClassGroup shape (see dbStore.ts migration
+    // notes). Only reject if the field is missing entirely (undefined/null).
+    if (!name || !age || !classGroup || section === undefined || section === null || !schoolId || !aadharNumber) {
       return res.status(400).json({ error: 'Missing required student details.' });
     }
 

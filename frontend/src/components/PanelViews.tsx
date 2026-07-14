@@ -1,13 +1,17 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { User, UserRole, Student, ClassGroup, School, EvaluationReport, LogEntry, Ticket } from '../types';
 import { Users, ShieldAlert, BookOpen, UserCheck, Calendar, ArrowRight, CheckCircle2, XCircle, SlidersHorizontal, Layers, Award, MapPin, School as SchoolIcon, BarChart3, FileText, ClipboardList, Building2, GraduationCap, BookMarked, Globe, Settings, Database, RefreshCw, Search, ChevronDown } from 'lucide-react';
 import { Table, Column } from './Table';
 import { MetricCard } from './Card';
+import { TeacherClassSelector } from './TeacherClassSelector';
 
 interface PanelViewsProps {
   activePanel: string;
   currentUser: User;
   token: string;
+  /** Shared lifted state from App.tsx. Optional — only teacher-facing panels consume it. */
+  teacherClassId?: string;
+  onTeacherClassIdChange?: (id: string) => void;
 }
 
 const STUDENTS_MOCK: Student[] = [
@@ -172,22 +176,112 @@ function PageHeader({ title, desc, icon }: { title: string; desc: string; icon?:
   );
 }
 
-function EmptyStudents() {
+function EmptyStudents(props: {
+  classes: ClassGroup[];
+  activeClass: ClassGroup | null;
+  students: Student[];
+  teacherClassId: string;
+  onTeacherClassIdChange: (id: string) => void;
+}) {
+  const { classes, activeClass, students, teacherClassId, onTeacherClassIdChange } = props;
   const cols: Column<Student>[] = [
     { header: 'ID', accessor: 'id', className: 'font-mono text-xs text-slate-400' },
     { header: 'Name', accessor: 'name', sortKey: 'name', className: 'font-semibold text-slate-800' },
     { header: 'Class', accessor: 'classGroup', className: '' },
+    { header: 'Section', accessor: 'section', className: 'font-mono text-xs text-slate-400' },
     { header: 'Level', accessor: (s) => `L${s.currentLevel}.${s.currentSubLevel ?? 0}`, className: 'font-mono' },
     { header: 'Streak', accessor: (s) => `${s.streak} 🔥`, className: '' },
   ];
-  return <Table data={STUDENTS_MOCK} columns={cols} searchPlaceholder="Search students..." searchKey="name" />;
+
+  return (
+    <div className="space-y-4">
+      {/* Shared grade selector — keeps Student List in sync with Dashboard. */}
+      <TeacherClassSelector
+        classes={classes}
+        value={teacherClassId}
+        onChange={(id) => onTeacherClassIdChange(id)}
+        label="Active Grade"
+      />
+      {activeClass ? (
+        <Table
+          data={students}
+          columns={cols}
+          searchPlaceholder="Search students by name..."
+          searchKey="name"
+        />
+      ) : (
+        <div className="p-8 text-center text-slate-400 font-mono text-xs border border-slate-200 rounded-lg bg-slate-50">
+          {classes.length === 0 ? 'Loading classes…' : 'Select a grade above to view its student list.'}
+        </div>
+      )}
+    </div>
+  );
 }
 
-export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser, token }) => {
+export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser, token, teacherClassId = '', onTeacherClassIdChange }) => {
   const [search, setSearch] = useState('');
   const [stateFilter, setStateFilter] = useState('all');
   const [distFilter, setDistFilter] = useState('all');
   const [expandedReportId, setExpandedReportId] = useState<string | null>(null);
+
+  // ---------- Live classes + students (teacher-facing panels) ----------
+  // Fetched once per `token` change. Acts as the single source of truth for
+  // Student List / Student Profile / Performance panels. Replaces the legacy
+  // STUDENTS_MOCK dataset that previously leaked s1..s7 into the UI.
+  const [classes, setClasses] = useState<ClassGroup[]>([]);
+  const [students, setStudents] = useState<Student[]>([]);
+
+  useEffect(() => {
+    const fetchLive = async () => {
+      if (!token) return;
+      try {
+        const clsRes = await fetch('/api/classes', {
+          headers: { 'Authorization': `Bearer ${token}` },
+        });
+        const clsData = await clsRes.json();
+        if (Array.isArray(clsData)) {
+          // Sort by grade number ascending so Grade 1 is selected first.
+          const sorted = [...clsData].sort((a: ClassGroup, b: ClassGroup) => {
+            const an = parseInt(String(a.className).match(/\d+/)?.[0] ?? '0', 10);
+            const bn = parseInt(String(b.className).match(/\d+/)?.[0] ?? '0', 10);
+            return an - bn;
+          });
+          setClasses(sorted);
+          // Default to the lowest grade only if no explicit selection exists yet.
+          if (sorted.length > 0 && !teacherClassId) {
+            onTeacherClassIdChange?.(sorted[0].id);
+          }
+        }
+      } catch (err) {
+        console.error(err);
+      }
+      try {
+        const stdRes = await fetch('/api/students', {
+          headers: { 'Authorization': `Bearer ${token}` },
+        });
+        const stdData = await stdRes.json();
+        if (Array.isArray(stdData)) setStudents(stdData);
+      } catch (err) {
+        console.error(err);
+      }
+    };
+    fetchLive();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token]);
+
+  // Derive the active class from the lifted id (same source as TeacherDashboard).
+  const activeClass = useMemo<ClassGroup | null>(
+    () => classes.find(c => c.id === teacherClassId) ?? null,
+    [classes, teacherClassId]
+  );
+
+  // Students scoped to the active grade/section (mirrors TeacherDashboard filter).
+  const activeClassStudents = useMemo<Student[]>(() => {
+    if (!activeClass) return [];
+    return students.filter(
+      s => s.classGroup === activeClass.className && s.section === activeClass.section
+    );
+  }, [students, activeClass]);
 
   const filteredSchools = SCHOOLS_MOCK.filter(s => {
     if (stateFilter !== 'all' && s.stateCode !== stateFilter) return false;
@@ -331,21 +425,49 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
   if (panel === 'student_list') {
     return (
       <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm space-y-4">
-        <PageHeader title="Student Roster" desc="Complete list of registered students across your classes" icon={<Users className="h-5 w-5" />} />
-        <EmptyStudents />
+        <PageHeader
+          title="Student Roster"
+          desc={
+            activeClass
+              ? `${activeClass.className}${activeClass.section ? ` - ${activeClass.section}` : ''} • ${activeClassStudents.length} students`
+              : 'Select a grade to view its student list.'
+          }
+          icon={<Users className="h-5 w-5" />}
+        />
+        <EmptyStudents
+          classes={classes}
+          activeClass={activeClass}
+          students={activeClassStudents}
+          teacherClassId={teacherClassId}
+          onTeacherClassIdChange={(id) => onTeacherClassIdChange?.(id)}
+        />
       </div>
     );
   }
 
   if (panel === 'student_profile') {
-    const [sel, setSel] = useState(STUDENTS_MOCK[0].id);
+    // ----- RESTORED: read from live /api/students scoped to active grade -----
+    const roster = activeClassStudents;
+    const [sel, setSel] = useState<string>(roster[0]?.id ?? '');
     const [profileTab, setProfileTab] = useState<'overview' | 'academic' | 'personal' | 'activity'>('overview');
     const [searchQuery, setSearchQuery] = useState('');
     const [showDropdown, setShowDropdown] = useState(false);
     const [activityFilter, setActivityFilter] = useState<'all' | 'assessment' | 'level_change'>('all');
-    const s = STUDENTS_MOCK.find(x => x.id === sel) || STUDENTS_MOCK[0];
 
-    const filteredStudents = STUDENTS_MOCK.filter(x =>
+    // Keep `sel` valid when the active grade changes or students refresh.
+    useEffect(() => {
+      if (roster.length === 0) {
+        if (sel !== '') setSel('');
+        return;
+      }
+      if (!roster.some(x => x.id === sel)) {
+        setSel(roster[0].id);
+      }
+    }, [roster, sel]);
+
+    const s = roster.find(x => x.id === sel) || roster[0];
+
+    const filteredStudents = roster.filter(x =>
       x.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       x.id.toLowerCase().includes(searchQuery.toLowerCase())
     );
@@ -365,7 +487,7 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
     const studentSchool = SCHOOLS_MOCK.find(sch => sch.id === s.schoolId);
     const att = ATTENDANCE_MOCK.find(a => a.student === s.name);
     const daysSinceEnroll = Math.floor((Date.now() - new Date(profile.enrollmentDate || s.id).getTime()) / 86400000);
-    const classStudents = STUDENTS_MOCK.filter(st => st.classGroup === s.classGroup);
+    const classStudents = activeClassStudents.filter(st => st.classGroup === s.classGroup);
     const classAvg = Math.round(classStudents.reduce((a, st) => a + st.currentLevel, 0) / Math.max(1, classStudents.length));
     const avgScore = reports.length > 0 ? Math.round(reports.reduce((a, r) => a + (r.score / r.totalQuestions) * 100, 0) / reports.length) : 0;
     const allSkills = new Map<string, { mastery: string; date: string }[]>();
@@ -381,7 +503,28 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
     ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     const filteredActivity = activityFilter === 'all' ? recentActivity : recentActivity.filter(a => a.type === activityFilter);
 
+    // Guard: if no students exist for the active grade, render a placeholder
+    // instead of leaving the profile broken. Avoids the previous regression
+    // where STUDENTS_MOCK-derived UI stayed blank.
+    if (!s) {
+      return (
+        <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm space-y-4">
+          <PageHeader title="Student Profile" desc="No students in the selected grade yet" icon={<Users className="h-5 w-5" />} />
+          <TeacherClassSelector
+            classes={classes}
+            value={teacherClassId}
+            onChange={(id) => onTeacherClassIdChange?.(id)}
+            label="Active Grade"
+          />
+          <div className="p-8 text-center text-slate-400 font-mono text-xs border border-slate-200 rounded-lg bg-slate-50">
+            Register at least one student in this grade to view their profile.
+          </div>
+        </div>
+      );
+    }
+
     const tabs = [
+
       { key: 'overview' as const, label: 'Overview', icon: BarChart3 },
       { key: 'academic' as const, label: 'Academic Record', icon: BookOpen },
       { key: 'personal' as const, label: 'Personal Details', icon: Users },
@@ -933,25 +1076,50 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
 
   if (panel === 'performance') {
     const isTeacher = currentUser.role === UserRole.TEACHER || currentUser.role === UserRole.VOLUNTEER;
-    const topStudents = [...STUDENTS_MOCK].sort((a, b) => b.currentLevel - a.currentLevel).slice(0, 5);
+    // Performance panel uses the same lifted teacherClassId as the dashboard.
+    // Falls back to the unfiltered `students` list only when no grade is picked
+    // (e.g., a non-teacher role viewing the same panel).
+    const perfRoster = activeClassStudents.length > 0
+      ? activeClassStudents
+      : students;
+    const topStudents = [...perfRoster].sort((a, b) => b.currentLevel - a.currentLevel).slice(0, 5);
+    const totalStudents = perfRoster.length;
+    const avgLevel = totalStudents > 0
+      ? `L${Math.round(perfRoster.reduce((a, st) => a + st.currentLevel, 0) / totalStudents)}`
+      : '—';
+    const certified = perfRoster.filter(s => s.currentLevel >= 5).length;
+    const pendingDiag = perfRoster.filter(s => s.levelHistory.length === 0).length;
     return (
       <div className="space-y-6">
+        {/* Shared grade selector so performance stays in sync with dashboard / student list. */}
+        <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+          <TeacherClassSelector
+            classes={classes}
+            value={teacherClassId}
+            onChange={(id) => onTeacherClassIdChange?.(id)}
+            label="Active Grade"
+          />
+        </div>
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <MetricCard title="Total Students" value={STUDENTS_MOCK.length} subtext="Active roster" icon={Users} />
-          <MetricCard title="Avg Level" value={`L${Math.round(STUDENTS_MOCK.reduce((a, s) => a + s.currentLevel, 0) / STUDENTS_MOCK.length)}`} subtext="Class average" icon={BarChart3} />
-          <MetricCard title="Certified" value={`${STUDENTS_MOCK.filter(s => s.currentLevel >= 5).length}`} subtext="Level 5+ achieved" icon={Award} />
-          <MetricCard title="Pending Diagnostic" value={STUDENTS_MOCK.filter(s => s.levelHistory.length === 0).length} subtext="Need placement" icon={ShieldAlert} />
+          <MetricCard title="Total Students" value={totalStudents} subtext={activeClass ? `${activeClass.className} roster` : 'Active roster'} icon={Users} />
+          <MetricCard title="Avg Level" value={avgLevel} subtext="Class average" icon={BarChart3} />
+          <MetricCard title="Certified" value={`${certified}`} subtext="Level 5+ achieved" icon={Award} />
+          <MetricCard title="Pending Diagnostic" value={pendingDiag} subtext="Need placement" icon={ShieldAlert} />
         </div>
         <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm">
           <PageHeader title={isTeacher ? "Class Performance" : "School Performance"} desc="FLN level distribution and trends" />
           <div className="space-y-3">
             <h4 className="text-xs font-mono font-bold text-slate-500 uppercase">Top Performing Students</h4>
-            <div className="space-y-2">{topStudents.map(s => (
-              <div key={s.id} className="flex justify-between items-center p-3 border border-slate-100 rounded-lg">
-                <div className="flex items-center gap-3"><span className="text-sm font-semibold">{s.name}</span><span className="text-xs text-slate-400">{s.classGroup}</span></div>
-                <div className="flex items-center gap-4"><div className="w-32 h-2 bg-slate-100 rounded-full overflow-hidden"><div className="h-full bg-emerald-500 rounded-full" style={{ width: `${(s.currentLevel / 59) * 100}%` }} /></div><span className="font-mono font-bold text-sm">L{s.currentLevel}</span></div>
-              </div>
-            ))}</div>
+            {topStudents.length === 0 ? (
+              <p className="text-xs text-slate-400 text-center py-6 border border-slate-100 rounded-lg">No students in the selected grade yet.</p>
+            ) : (
+              <div className="space-y-2">{topStudents.map(s => (
+                <div key={s.id} className="flex justify-between items-center p-3 border border-slate-100 rounded-lg">
+                  <div className="flex items-center gap-3"><span className="text-sm font-semibold">{s.name}</span><span className="text-xs text-slate-400">{s.classGroup}</span></div>
+                  <div className="flex items-center gap-4"><div className="w-32 h-2 bg-slate-100 rounded-full overflow-hidden"><div className="h-full bg-emerald-500 rounded-full" style={{ width: `${(s.currentLevel / 59) * 100}%` }} /></div><span className="font-mono font-bold text-sm">L{s.currentLevel}</span></div>
+                </div>
+              ))}</div>
+            )}
           </div>
         </div>
       </div>

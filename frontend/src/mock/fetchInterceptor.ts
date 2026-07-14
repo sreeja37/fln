@@ -341,7 +341,10 @@ export function setupFetchInterceptor() {
       if (path === '/api/students' && method === 'POST') {
         if (!currentUser) return errorResponse('Unauthorized', 401);
         const { name, age, classGroup, section, schoolId, aadharNumber } = bodyData;
-        if (!name || !age || !classGroup || !section || !schoolId || !aadharNumber) {
+        // section is intentionally optional: the Grade-only roster uses "" for
+        // backwards-compat with the ClassGroup shape (see dbStore.ts migration
+        // notes). Only reject if the field is missing entirely (undefined/null).
+        if (!name || !age || !classGroup || section === undefined || section === null || !schoolId || !aadharNumber) {
           return errorResponse('Missing required student details.');
         }
 
@@ -361,7 +364,22 @@ export function setupFetchInterceptor() {
           targetLevel: 2,
           aadharMasked: masked,
           levelHistory: [],
-          streak: 0
+          streak: 0,
+          // Information-management fields: initialised to empty strings so the
+          // Student Profile form has a defined value to bind to. Teacher fills
+          // them in via the Edit Profile flow.
+          gender: '',
+          dob: '',
+          fatherName: '',
+          motherName: '',
+          guardianName: '',
+          phone: '',
+          alternatePhone: '',
+          address: '',
+          village: '',
+          district: '',
+          state: '',
+          pinCode: ''
         };
 
         db.students.push(newStd);
@@ -384,24 +402,46 @@ export function setupFetchInterceptor() {
         return jsonResponse(newStd);
       }
 
-      // 13. PATCH /api/students/:id (Bypass Level override)
-      const matchStudentPatch = path.match(/^\/api\/students\/([^\/]+)$/);
-      if (matchStudentPatch && method === 'PATCH') {
-        if (!currentUser) return errorResponse('Unauthorized', 401);
-        const studentIndex = db.students.findIndex(s => s.id === matchStudentPatch[1]);
-        if (studentIndex === -1) return errorResponse('Student not found.', 404);
+      // 13. PATCH /api/students/:id (Bypass Level override + Information Management edit)
+//      Body is one of:
+//        { currentLevel, currentSubLevel, targetLevel, levelHistory }  — bypass case
+//      OR for the Student Profile information-management form (any subset):
+//        { fullName, gender, dob, fatherName, motherName, guardianName,
+//          phone, alternatePhone, address, village, district, state, pinCode }
+const matchStudentPatch = path.match(/^\/api\/students\/([^\/]+)$/);
+if (matchStudentPatch && method === 'PATCH') {
+  if (!currentUser) return errorResponse('Unauthorized', 401);
+  const studentIndex = db.students.findIndex(s => s.id === matchStudentPatch[1]);
+  if (studentIndex === -1) return errorResponse('Student not found.', 404);
 
-        const { currentLevel, currentSubLevel, targetLevel, levelHistory } = bodyData;
-        const student = db.students[studentIndex];
+  const student = db.students[studentIndex];
 
-        if (currentLevel !== undefined) student.currentLevel = Number(currentLevel);
-        if (currentSubLevel !== undefined) student.currentSubLevel = Number(currentSubLevel);
-        if (targetLevel !== undefined) student.targetLevel = Number(targetLevel);
-        if (levelHistory !== undefined) student.levelHistory = levelHistory;
+  // Bypass-level fields (original behaviour preserved)
+  if (bodyData.currentLevel !== undefined) student.currentLevel = Number(bodyData.currentLevel);
+  if (bodyData.currentSubLevel !== undefined) student.currentSubLevel = Number(bodyData.currentSubLevel);
+  if (bodyData.targetLevel !== undefined) student.targetLevel = Number(bodyData.targetLevel);
+  if (bodyData.levelHistory !== undefined) student.levelHistory = bodyData.levelHistory;
 
-        saveMockDB(db);
-        return jsonResponse(student);
-      }
+  // Information-management fields (Student Profile form). Each key is
+  // optional — only update what's in the request body.
+  if (bodyData.fullName !== undefined)     student.name = String(bodyData.fullName);
+  if (bodyData.age !== undefined)          student.age = Number(bodyData.age);
+  if (bodyData.gender !== undefined)       student.gender = bodyData.gender;
+  if (bodyData.dob !== undefined)          student.dob = bodyData.dob;
+  if (bodyData.fatherName !== undefined)   student.fatherName = bodyData.fatherName;
+  if (bodyData.motherName !== undefined)   student.motherName = bodyData.motherName;
+  if (bodyData.guardianName !== undefined) student.guardianName = bodyData.guardianName;
+  if (bodyData.phone !== undefined)        student.phone = bodyData.phone;
+  if (bodyData.alternatePhone !== undefined) student.alternatePhone = bodyData.alternatePhone;
+  if (bodyData.address !== undefined)      student.address = bodyData.address;
+  if (bodyData.village !== undefined)      student.village = bodyData.village;
+  if (bodyData.district !== undefined)     student.district = bodyData.district;
+  if (bodyData.state !== undefined)        student.state = bodyData.state;
+  if (bodyData.pinCode !== undefined)      student.pinCode = bodyData.pinCode;
+
+  saveMockDB(db);
+  return jsonResponse(student);
+}
 
       // 14. POST /api/students/:id/diagnostic
       const matchDiagGen = path.match(/^\/api\/students\/([^\/]+)\/diagnostic$/);
@@ -606,27 +646,6 @@ export function setupFetchInterceptor() {
         return jsonResponse({
           success: true,
           pdfUrl: `/output/mock_worksheet_${worksheetId}.pdf`
-        });
-      }
-
-      // 17b. POST /api/worksheets/download-grade
-      if (path === '/api/worksheets/download-grade' && method === 'POST') {
-        const { worksheetId } = bodyData;
-        const ws = db.worksheets.find(w => w.id === worksheetId);
-        if (!ws) return errorResponse('Worksheet not found.', 404);
-
-        // Mirror the mock-merge contract: return a stable, grade-scoped URL
-        // (so the UI can show/download it) and trigger the browser print
-        // dialog so the teacher still gets a printable artifact in demo.
-        const classMatch = String(ws.className || '').match(/\d+/);
-        const classNumber = classMatch ? parseInt(classMatch[0], 10) : 1;
-        const fileName = `Grade${classNumber}_Personalized_Worksheets.pdf`;
-        setTimeout(() => window.print(), 100);
-        return jsonResponse({
-          success: true,
-          pdfUrl: `/output/${fileName}`,
-          fileName,
-          totalStudents: 0
         });
       }
 

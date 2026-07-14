@@ -7,6 +7,7 @@ import { LogbookView } from './LogbookView';
 import { TicketSubmission } from './TicketSubmission';
 import { IcrScanner } from './IcrScanner';
 import { BaselineUpload } from './BaselineUpload';
+import { TeacherClassSelector } from './TeacherClassSelector';
 import { Users, ShieldAlert, BookOpen, UserCheck, Calendar, ArrowRight, CheckCircle2, XCircle, SlidersHorizontal, Layers, Award, MapPin, School as SchoolIcon, BarChart3, FileText, ClipboardList, Layers as BulkIcon } from 'lucide-react';
 import { Table, Column } from './Table';
 import { MetricCard } from './Card';
@@ -174,6 +175,9 @@ const DISTRICT_NAMES: Record<string, string> = {
 interface DashboardProps {
   user: User;
   token: string;
+  /** Shared lifted state from App.tsx. Optional because only TeacherDashboard consumes it. */
+  teacherClassId?: string;
+  onTeacherClassIdChange?: (id: string) => void;
 }
 
 // ==========================================
@@ -1538,10 +1542,14 @@ export const SchoolDashboard: React.FC<DashboardProps> = ({ user, token }) => {
 // ==========================================
 // 4. TEACHER DASHBOARD
 // ==========================================
-export const TeacherDashboard: React.FC<DashboardProps> = ({ user, token }) => {
+export const TeacherDashboard: React.FC<DashboardProps> = ({ user, token, teacherClassId = '', onTeacherClassIdChange }) => {
   const [classes, setClasses] = useState<ClassGroup[]>([]);
   const [students, setStudents] = useState<Student[]>([]);
-  const [activeClass, setActiveClass] = useState<ClassGroup | null>(null);
+  // activeClass is derived from the lifted teacherClassId + classes (single source of truth)
+  const activeClass = useMemo<ClassGroup | null>(
+    () => classes.find(c => c.id === teacherClassId) ?? null,
+    [classes, teacherClassId]
+  );
 
   // Modal / workflow triggers
   const [diagnosticStudent, setDiagnosticStudent] = useState<Student | null>(null);
@@ -1603,8 +1611,17 @@ export const TeacherDashboard: React.FC<DashboardProps> = ({ user, token }) => {
       const clsRes = await fetch('/api/classes', { headers: { 'Authorization': `Bearer ${token}` } });
       const clsData = await clsRes.json();
       if (Array.isArray(clsData)) {
-        setClasses(clsData);
-        if (clsData.length > 0) setActiveClass(clsData[0]);
+        // Sort by grade number ascending so Grade 1 is selected first.
+        const sorted = [...clsData].sort((a: ClassGroup, b: ClassGroup) => {
+          const an = parseInt(String(a.className).match(/\d+/)?.[0] ?? '0', 10);
+          const bn = parseInt(String(b.className).match(/\d+/)?.[0] ?? '0', 10);
+          return an - bn;
+        });
+        setClasses(sorted);
+        // Default to the lowest grade only if no explicit selection exists yet.
+        if (sorted.length > 0 && !teacherClassId) {
+          onTeacherClassIdChange?.(sorted[0].id);
+        }
       }
 
       const stdRes = await fetch('/api/students', { headers: { 'Authorization': `Bearer ${token}` } });
@@ -1617,6 +1634,7 @@ export const TeacherDashboard: React.FC<DashboardProps> = ({ user, token }) => {
 
   useEffect(() => {
     fetchTeacherData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
   // Poll bulk job progress
@@ -1676,7 +1694,7 @@ export const TeacherDashboard: React.FC<DashboardProps> = ({ user, token }) => {
       });
       const data = await res.json();
       if (res.ok) {
-        setRegSuccess(`Successfully registered ${name} in ${finalClassGroup} - ${finalSection}!`);
+        setRegSuccess(`Successfully registered ${name} in ${finalClassGroup}!`);
         setName('');
         setAge('');
         setAadhar('');
@@ -1828,7 +1846,7 @@ export const TeacherDashboard: React.FC<DashboardProps> = ({ user, token }) => {
         <form onSubmit={handleAddStudent} className="bg-white p-6 border border-zinc-200 rounded-xl shadow-sm space-y-4">
           <div className="flex justify-between items-center border-b border-zinc-100 pb-2">
             <h4 className="text-xs font-mono font-bold text-zinc-500 uppercase">
-              Register Student in <span className="text-zinc-900">{activeClass ? `${activeClass.className} - ${activeClass.section}` : `${cls} - ${sec}`}</span>
+              Register Student in <span className="text-zinc-900">{activeClass ? activeClass.className : cls}</span>
             </h4>
           </div>
           
@@ -1889,20 +1907,13 @@ export const TeacherDashboard: React.FC<DashboardProps> = ({ user, token }) => {
         </form>
       )}
 
-      {/* Class picker tabs */}
-      <div className="flex gap-2 border-b border-zinc-200 pb-px">
-        {classes.map(c => (
-          <button
-            key={c.id}
-            onClick={() => setActiveClass(c)}
-            className={`px-4 py-2 text-sm font-display font-medium border-b-2 transition-all ${
-              activeClass?.id === c.id ? 'border-zinc-900 text-zinc-900 font-semibold' : 'border-transparent text-zinc-500 hover:text-zinc-700'
-            }`}
-          >
-            {c.className} - {c.section}
-          </button>
-        ))}
-      </div>
+      {/* Active Grade dropdown (single source of truth) */}
+      <TeacherClassSelector
+        classes={classes}
+        value={teacherClassId}
+        onChange={(id) => onTeacherClassIdChange?.(id)}
+        label="Active Grade"
+      />
 
       {activeClass && (
         <div className="space-y-6">
@@ -2072,7 +2083,7 @@ export const TeacherDashboard: React.FC<DashboardProps> = ({ user, token }) => {
           {/* Class roster table */}
           <div className="xl:col-span-2 bg-white border border-zinc-200 rounded-xl shadow-sm overflow-hidden">
             <div className="p-4 border-b border-zinc-150 flex justify-between items-center bg-zinc-50/50">
-              <h3 className="font-display font-medium text-zinc-900 text-sm">Classroom Student Roster ({classStudents.length})</h3>
+              <h3 className="font-display font-medium text-zinc-900 text-sm">{activeClass ? `${activeClass.className} Student Roster` : 'Classroom Student Roster'} ({classStudents.length})</h3>
               <button
                 onClick={() => setShowWorksheetPortal(true)} // Open worksheets flow
                 className="bg-white hover:bg-zinc-50 border border-zinc-200 text-zinc-700 font-mono text-[10px] font-bold px-3 py-1.5 rounded-lg shadow-sm cursor-pointer hover:border-zinc-400 transition-colors"

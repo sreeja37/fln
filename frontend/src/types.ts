@@ -55,6 +55,21 @@ export interface Student {
   aadharMasked: string;
   levelHistory: { level: number; subLevel?: number; date: string; reason: string }[];
   streak: number;
+  // ----- Information-management fields (editable via Student Profile) -----
+  // Optional so older Student records (and freshly-registered students) can
+  // exist with these fields unset. New students initialise to '' on register.
+  gender?: 'Male' | 'Female' | 'Other' | '';
+  dob?: string;                 // ISO date (YYYY-MM-DD)
+  fatherName?: string;
+  motherName?: string;
+  guardianName?: string;
+  phone?: string;
+  alternatePhone?: string;
+  address?: string;
+  village?: string;
+  district?: string;
+  state?: string;
+  pinCode?: string;
 }
 
 export interface Question {
