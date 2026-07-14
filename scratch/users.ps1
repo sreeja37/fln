@@ -1,0 +1,2 @@
+$db = Get-Content 'C:\Users\sreej\OneDrive\Desktop\iitrpr-fln\fln\backend\data\db.json' | ConvertFrom-Json
+$db.users | Where-Object { $_.id -in 'u6','u6_amb','u6_jai','u6_lko' } | Select-Object id, name, email, role, schoolId, assignedSchools | Format-Table -AutoSize

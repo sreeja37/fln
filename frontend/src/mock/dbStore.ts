@@ -1,7 +1,7 @@
 import { User, UserRole, School, ClassGroup, Student, Question, Worksheet, AnswerSubmission, EvaluationReport, Ticket, LogEntry, Announcement } from '../types';
 import { generateQuestionsForLevel } from '../utils/levelGenerator';
 
-const MOCK_DB_KEY = 'fln_mock_db_store';
+const MOCK_DB_KEY = 'fln_mock_db_store_v2';
 
 export interface MockDatabaseSchema {
   users: User[];
@@ -117,7 +117,7 @@ export function getInitialSeedData(): MockDatabaseSchema {
     { id: 'c1', schoolId: 'gps-mt-001', className: 'Class 2', section: 'A', teacherId: 'u6' },
     { id: 'c2', schoolId: 'gps-mt-001', className: 'Class 3', section: 'A', teacherId: 'u6' },
     { id: 'c3', schoolId: 'gps-vl-002', className: 'Class 2', section: 'A', teacherId: '' },
-    { id: 'c4', schoolId: 'gps-amb-003', className: 'Class 3', section: 'A', teacherId: 'u6_amb' },
+    { id: 'c4', schoolId: 'gps-amb-003', className: 'Grade 3', section: 'A', teacherId: 'u6_amb' },
     { id: 'c5', schoolId: 'gps-jai-004', className: 'Class 4', section: 'A', teacherId: 'u6_jai' },
     { id: 'c6', schoolId: 'gps-lko-005', className: 'Class 3', section: 'A', teacherId: 'u6_lko' },
     { id: 'c7', schoolId: 'gps-bth-006', className: 'Class 3', section: 'A', teacherId: 'u6_bth_a' },
@@ -133,7 +133,12 @@ export function getInitialSeedData(): MockDatabaseSchema {
     { id: 'c17', schoolId: 'gps-knp-012', className: 'Class 2', section: 'A', teacherId: 'u6_knp' },
     { id: 'c18', schoolId: 'gps-pb-ldh2-013', className: 'Class 2', section: 'A', teacherId: 'u6_ldh2' },
     { id: 'c19', schoolId: 'gps-hr-amb2-014', className: 'Class 3', section: 'A', teacherId: 'u6_amb2' },
-    { id: 'c20', schoolId: 'gps-mt-001', className: 'Class 4', section: 'A', teacherId: 'u6' }
+    { id: 'c20', schoolId: 'gps-mt-001', className: 'Class 4', section: 'A', teacherId: 'u6' },
+    // Multi-grade classes for gps-amb-003 (Meena Kumari) — restored so the Active Grade dropdown
+    // shows Grade 1..4 for that teacher instead of only the Class 3 record.
+    { id: 'c21', schoolId: 'gps-amb-003', className: 'Grade 1', section: 'A', teacherId: 'u6_amb' },
+    { id: 'c22', schoolId: 'gps-amb-003', className: 'Grade 2', section: 'A', teacherId: 'u6_amb' },
+    { id: 'c23', schoolId: 'gps-amb-003', className: 'Grade 4', section: 'A', teacherId: 'u6_amb' }
   ];
 
   const students: Student[] = [
@@ -208,7 +213,24 @@ export function getInitialSeedData(): MockDatabaseSchema {
     { id: 's_new_12', name: 'Arjun Yadav', age: 8, classGroup: 'Class 3', section: 'A', schoolId: 'gps-hr-amb2-014', teacherId: 'u6_amb2', currentLevel: 1, currentSubLevel: 0, targetLevel: 2, aadharMasked: 'XXXX-XXXX-1237', levelHistory: [], streak: 0 },
     { id: 's_new_13', name: 'Sana Sheikh', age: 9, classGroup: 'Class 3', section: 'A', schoolId: 'gps-lko-005', teacherId: 'u6_lko', currentLevel: 1, currentSubLevel: 0, targetLevel: 2, aadharMasked: 'XXXX-XXXX-1238', levelHistory: [], streak: 0 },
     { id: 's_new_14', name: 'Rohini Patil', age: 9, classGroup: 'Class 3', section: 'A', schoolId: 'gps-amb-003', teacherId: 'u6_amb', currentLevel: 1, currentSubLevel: 0, targetLevel: 2, aadharMasked: 'XXXX-XXXX-1239', levelHistory: [], streak: 0 },
-    { id: 's_new_15', name: 'Farhan Ali', age: 10, classGroup: 'Class 4', section: 'A', schoolId: 'gps-jai-004', teacherId: 'u6_jai', currentLevel: 1, currentSubLevel: 0, targetLevel: 2, aadharMasked: 'XXXX-XXXX-1240', levelHistory: [], streak: 0 }
+    { id: 's_new_15', name: 'Farhan Ali', age: 10, classGroup: 'Class 4', section: 'A', schoolId: 'gps-jai-004', teacherId: 'u6_jai', currentLevel: 1, currentSubLevel: 0, targetLevel: 2, aadharMasked: 'XXXX-XXXX-1240', levelHistory: [], streak: 0 },
+    // ── gps-amb-003 multi-grade roster (Meena Kumari) — restored ──
+    // Grade 1 — 4 students
+    { id: 's_amb_g1_1', name: 'Aarav Khanna', age: 6, classGroup: 'Grade 1', section: 'A', schoolId: 'gps-amb-003', teacherId: 'u6_amb', currentLevel: 1, currentSubLevel: 0, targetLevel: 2, aadharMasked: 'XXXX-XXXX-1301', levelHistory: [], streak: 0 },
+    { id: 's_amb_g1_2', name: 'Saanvi Kapoor', age: 7, classGroup: 'Grade 1', section: 'A', schoolId: 'gps-amb-003', teacherId: 'u6_amb', currentLevel: 1, currentSubLevel: 0, targetLevel: 2, aadharMasked: 'XXXX-XXXX-1302', levelHistory: [], streak: 0 },
+    { id: 's_amb_g1_3', name: 'Reyansh Bhatia', age: 6, classGroup: 'Grade 1', section: 'A', schoolId: 'gps-amb-003', teacherId: 'u6_amb', currentLevel: 1, currentSubLevel: 0, targetLevel: 2, aadharMasked: 'XXXX-XXXX-1303', levelHistory: [], streak: 0 },
+    { id: 's_amb_g1_4', name: 'Pari Chopra', age: 7, classGroup: 'Grade 1', section: 'A', schoolId: 'gps-amb-003', teacherId: 'u6_amb', currentLevel: 1, currentSubLevel: 0, targetLevel: 2, aadharMasked: 'XXXX-XXXX-1304', levelHistory: [], streak: 0 },
+    // Grade 2 — 4 students
+    { id: 's_amb_g2_1', name: 'Vihaan Kohli', age: 8, classGroup: 'Grade 2', section: 'A', schoolId: 'gps-amb-003', teacherId: 'u6_amb', currentLevel: 2, currentSubLevel: 0, targetLevel: 3, aadharMasked: 'XXXX-XXXX-1311', levelHistory: [], streak: 0 },
+    { id: 's_amb_g2_2', name: 'Anaya Verma', age: 8, classGroup: 'Grade 2', section: 'A', schoolId: 'gps-amb-003', teacherId: 'u6_amb', currentLevel: 2, currentSubLevel: 0, targetLevel: 3, aadharMasked: 'XXXX-XXXX-1312', levelHistory: [], streak: 0 },
+    { id: 's_amb_g2_3', name: 'Krish Tiwari', age: 8, classGroup: 'Grade 2', section: 'A', schoolId: 'gps-amb-003', teacherId: 'u6_amb', currentLevel: 2, currentSubLevel: 0, targetLevel: 3, aadharMasked: 'XXXX-XXXX-1313', levelHistory: [], streak: 0 },
+    { id: 's_amb_g2_4', name: 'Ishita Singh', age: 8, classGroup: 'Grade 2', section: 'A', schoolId: 'gps-amb-003', teacherId: 'u6_amb', currentLevel: 2, currentSubLevel: 0, targetLevel: 3, aadharMasked: 'XXXX-XXXX-1314', levelHistory: [], streak: 0 },
+    // Grade 4 — 5 students
+    { id: 's_amb_g4_1', name: 'Aarush Sharma', age: 10, classGroup: 'Grade 4', section: 'A', schoolId: 'gps-amb-003', teacherId: 'u6_amb', currentLevel: 5, currentSubLevel: 0, targetLevel: 6, aadharMasked: 'XXXX-XXXX-1321', levelHistory: [], streak: 0 },
+    { id: 's_amb_g4_2', name: 'Myra Iyer', age: 10, classGroup: 'Grade 4', section: 'A', schoolId: 'gps-amb-003', teacherId: 'u6_amb', currentLevel: 5, currentSubLevel: 0, targetLevel: 6, aadharMasked: 'XXXX-XXXX-1322', levelHistory: [], streak: 0 },
+    { id: 's_amb_g4_3', name: 'Ayaan Pandey', age: 10, classGroup: 'Grade 4', section: 'A', schoolId: 'gps-amb-003', teacherId: 'u6_amb', currentLevel: 5, currentSubLevel: 0, targetLevel: 6, aadharMasked: 'XXXX-XXXX-1323', levelHistory: [], streak: 0 },
+    { id: 's_amb_g4_4', name: 'Diya Chauhan', age: 10, classGroup: 'Grade 4', section: 'A', schoolId: 'gps-amb-003', teacherId: 'u6_amb', currentLevel: 5, currentSubLevel: 0, targetLevel: 6, aadharMasked: 'XXXX-XXXX-1324', levelHistory: [], streak: 0 },
+    { id: 's_amb_g4_5', name: 'Kabir Mehta', age: 10, classGroup: 'Grade 4', section: 'A', schoolId: 'gps-amb-003', teacherId: 'u6_amb', currentLevel: 5, currentSubLevel: 0, targetLevel: 6, aadharMasked: 'XXXX-XXXX-1325', levelHistory: [], streak: 0 }
   ];
 
   const seedQuestions = getSeedQuestions();
