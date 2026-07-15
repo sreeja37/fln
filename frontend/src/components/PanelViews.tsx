@@ -6,6 +6,7 @@ import { MetricCard } from './Card';
 import { TeacherClassSelector } from './TeacherClassSelector';
 import { StudentProfilePanel } from './StudentProfilePanel';
 import { StudentPerformancePanel } from './StudentPerformancePanel';
+import { StudentReportsPanel } from './StudentReportsPanel';
 
 interface PanelViewsProps {
   activePanel: string;
@@ -27,10 +28,120 @@ const STUDENTS_MOCK: Student[] = [
 ];
 
 const REPORTS_MOCK: EvaluationReport[] = [
-  { id: 'r1', studentId: 's1', worksheetId: 'ws1', score: 8, totalQuestions: 10, conceptMastery: { 'Number Sense': 'Strong', 'Addition': 'Satisfactory', 'Subtraction': 'Needs Practice' }, narrative: 'Shows good number sense but needs practice with borrowing in subtraction.', recommendedLevel: 12, timestamp: '2026-03-15T10:00:00Z' },
-  { id: 'r2', studentId: 's2', worksheetId: 'ws2', score: 5, totalQuestions: 10, conceptMastery: { 'Number Sense': 'Satisfactory', 'Shapes': 'Needs Practice', 'Patterns': 'Needs Practice' }, narrative: 'Struggling with pattern recognition. Recommend additional tracing and matching exercises.', recommendedLevel: 8, recommendedSubLevel: 1, timestamp: '2026-02-20T11:30:00Z' },
-  { id: 'r3', studentId: 's3', worksheetId: 'ws3', score: 9, totalQuestions: 10, conceptMastery: { 'Place Value': 'Strong', 'Comparison': 'Strong', 'Addition': 'Strong' }, narrative: 'Excellent understanding of place value up to 1000. Ready to progress to multiplication.', recommendedLevel: 36, timestamp: '2026-01-10T09:15:00Z' },
-  { id: 'r4', studentId: 's6', worksheetId: 'ws4', score: 7, totalQuestions: 10, conceptMastery: { 'Multiplication': 'Strong', 'Division': 'Satisfactory', 'Measurement': 'Satisfactory' }, narrative: 'Multiplication skills are strong. Division concepts are developing well with occasional errors.', recommendedLevel: 38, recommendedSubLevel: 1, timestamp: '2026-03-01T14:00:00Z' },
+  {
+    id: 'rep_amb_g1_1_diag',
+    studentId: 's_amb_g1_1',
+    worksheetId: 'diagnostic-g1-counting',
+    score: 2,
+    totalQuestions: 3,
+    conceptMastery: { 'Counting Objects': 'Strong', 'Number Names': 'Satisfactory', 'Shape Sorting': 'Needs Practice' },
+    narrative: 'Aarav counts small object sets accurately and is ready for Level 1 practice, but needs guided work on sorting shapes by attributes.',
+    recommendedLevel: 1,
+    recommendedSubLevel: 0,
+    timestamp: '2026-07-01T09:15:00Z',
+    questionResponses: [
+      { question: 'Count 5 drawn mangoes.', studentAnswer: '5', correctAnswer: '5', status: 'Correct', feedback: 'Accurate one-to-one counting.' },
+      { question: 'Circle the number after 3.', studentAnswer: '4', correctAnswer: '4', status: 'Correct', feedback: 'Understands forward number sequence.' },
+      { question: 'Select all triangles from mixed shapes.', studentAnswer: '2 triangles selected', correctAnswer: '3 triangles selected', status: 'Incorrect', feedback: 'Review triangle sides and corners.' }
+    ],
+    teacherRemarks: 'Pair shape sorting with concrete classroom objects.',
+    aiRecommendations: 'Assign Level 1 counting fluency and a short shape-identification worksheet.'
+  },
+  {
+    id: 'rep_amb_g1_2_diag',
+    studentId: 's_amb_g1_2',
+    worksheetId: 'diagnostic-g1-numerals',
+    score: 2,
+    totalQuestions: 3,
+    conceptMastery: { 'Number Recognition': 'Strong', 'Counting Objects': 'Strong', 'Before After Numbers': 'Satisfactory' },
+    narrative: 'Saanvi recognizes numerals up to 10 and counts carefully. She hesitates on before/after number prompts and should stay at Level 1 with sequencing practice.',
+    recommendedLevel: 1,
+    recommendedSubLevel: 0,
+    timestamp: '2026-07-01T09:35:00Z',
+    questionResponses: [
+      { question: 'Read the numeral 8.', studentAnswer: '8', correctAnswer: '8', status: 'Correct', feedback: 'Clear numeral recognition.' },
+      { question: 'Count 6 stars.', studentAnswer: '6', correctAnswer: '6', status: 'Correct', feedback: 'Maintains stable count.' },
+      { question: 'What comes before 7?', studentAnswer: '5', correctAnswer: '6', status: 'Incorrect', feedback: 'Needs more before-number drills.' }
+    ],
+    teacherRemarks: 'Use number-line warmups before independent work.',
+    aiRecommendations: 'Provide Level 1 sequencing cards focused on before and after numbers.'
+  },
+  {
+    id: 'rep_amb_g2_1_diag',
+    studentId: 's_amb_g2_1',
+    worksheetId: 'diagnostic-g2-addition',
+    score: 2,
+    totalQuestions: 3,
+    conceptMastery: { 'Two Digit Addition': 'Strong', 'Place Value': 'Satisfactory', 'Subtraction Within 20': 'Needs Practice' },
+    narrative: 'Vihaan is correctly placed at Level 2. Addition strategies are strong, while subtraction within 20 needs regrouping support.',
+    recommendedLevel: 2,
+    recommendedSubLevel: 0,
+    timestamp: '2026-07-02T10:05:00Z',
+    questionResponses: [
+      { question: 'Solve 12 + 6.', studentAnswer: '18', correctAnswer: '18', status: 'Correct', feedback: 'Adds ones accurately.' },
+      { question: 'Write the tens and ones in 24.', studentAnswer: '2 tens and 4 ones', correctAnswer: '2 tens and 4 ones', status: 'Correct', feedback: 'Place value language is secure.' },
+      { question: 'Solve 17 - 9.', studentAnswer: '9', correctAnswer: '8', status: 'Incorrect', feedback: 'Practice subtraction facts with counters.' }
+    ],
+    teacherRemarks: 'Continue Level 2 addition, then reteach subtraction using ten-frames.',
+    aiRecommendations: 'Assign a Level 2 subtraction-within-20 remedial worksheet before moving to Level 3.'
+  },
+  {
+    id: 'rep_amb_g2_2_diag',
+    studentId: 's_amb_g2_2',
+    worksheetId: 'diagnostic-g2-patterns',
+    score: 2,
+    totalQuestions: 3,
+    conceptMastery: { 'Skip Counting': 'Strong', 'Patterns': 'Needs Practice', 'Number Comparison': 'Satisfactory' },
+    narrative: 'Anaya remains at Level 2. Skip counting is reliable, but repeating pattern tasks need more visual practice before progression.',
+    recommendedLevel: 2,
+    recommendedSubLevel: 0,
+    timestamp: '2026-07-02T10:30:00Z',
+    questionResponses: [
+      { question: 'Continue 2, 4, 6, __.', studentAnswer: '8', correctAnswer: '8', status: 'Correct', feedback: 'Skip counting by twos is strong.' },
+      { question: 'Choose the greater number: 31 or 13.', studentAnswer: '31', correctAnswer: '31', status: 'Correct', feedback: 'Compares two-digit numbers correctly.' },
+      { question: 'Continue the pattern: circle, square, circle, square, __.', studentAnswer: 'square', correctAnswer: 'circle', status: 'Incorrect', feedback: 'Needs visual pattern repetition practice.' }
+    ],
+    teacherRemarks: 'Use manipulatives for AB and AAB patterns.',
+    aiRecommendations: 'Generate a Level 2 pattern-recognition worksheet with color and shape sequences.'
+  },
+  {
+    id: 'rep_amb_g4_1_diag',
+    studentId: 's_amb_g4_1',
+    worksheetId: 'diagnostic-g4-multiplication',
+    score: 2,
+    totalQuestions: 3,
+    conceptMastery: { 'Multiplication Facts': 'Strong', 'Division Meaning': 'Satisfactory', 'Fractions': 'Needs Practice' },
+    narrative: 'Aarush is placed at Level 5. Multiplication facts are fluent, but fraction representation should be strengthened before Level 6 work.',
+    recommendedLevel: 5,
+    recommendedSubLevel: 0,
+    timestamp: '2026-07-03T11:00:00Z',
+    questionResponses: [
+      { question: 'Solve 7 x 4.', studentAnswer: '28', correctAnswer: '28', status: 'Correct', feedback: 'Multiplication recall is fluent.' },
+      { question: 'Share 18 pencils equally among 3 children.', studentAnswer: '6', correctAnswer: '6', status: 'Correct', feedback: 'Understands equal sharing.' },
+      { question: 'Shade one half of a rectangle split into 4 equal parts.', studentAnswer: '1 part shaded', correctAnswer: '2 parts shaded', status: 'Incorrect', feedback: 'Review equivalent parts for one half.' }
+    ],
+    teacherRemarks: 'Keep multiplication challenge tasks while revisiting fractions visually.',
+    aiRecommendations: 'Assign Level 5 fraction models using halves and quarters.'
+  },
+  {
+    id: 'rep_amb_g4_2_diag',
+    studentId: 's_amb_g4_2',
+    worksheetId: 'diagnostic-g4-measurement',
+    score: 2,
+    totalQuestions: 3,
+    conceptMastery: { 'Measurement': 'Strong', 'Division Facts': 'Needs Practice', 'Word Problems': 'Satisfactory' },
+    narrative: 'Myra is placed at Level 5. Measurement reading is secure, while division fact fluency is the main area holding back independent problem solving.',
+    recommendedLevel: 5,
+    recommendedSubLevel: 0,
+    timestamp: '2026-07-03T11:25:00Z',
+    questionResponses: [
+      { question: 'Read the ruler mark at 8 cm.', studentAnswer: '8 cm', correctAnswer: '8 cm', status: 'Correct', feedback: 'Reads centimeter scale correctly.' },
+      { question: 'A rope is 12 cm and another is 5 cm. How much longer is the first?', studentAnswer: '7 cm', correctAnswer: '7 cm', status: 'Correct', feedback: 'Solves comparison word problem.' },
+      { question: 'Solve 24 divided by 6.', studentAnswer: '3', correctAnswer: '4', status: 'Incorrect', feedback: 'Practice division facts with multiplication families.' }
+    ],
+    teacherRemarks: 'Use fact-family cards for division fluency.',
+    aiRecommendations: 'Generate Level 5 division fact practice linked to measurement word problems.'
+  },
 ];
 
 const TEACHERS_MOCK = [
@@ -564,166 +675,16 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
   }
 
   if (panel === 'reports') {
-    const isStateAdmin = currentUser.role === UserRole.ADMIN;
-    if (isStateAdmin) {
-      const userState = currentUser.stateCode || 'PB';
-      const stateSchools = SCHOOLS_MOCK.filter(s => s.stateCode === userState);
-      const stateDistricts = [...new Set(stateSchools.map(s => s.districtCode))];
-      const [expandedDistRpt, setExpandedDistRpt] = useState<string | null>(null);
-      return (
-        <div className="space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <MetricCard title="Total Reports" value={REPORTS_MOCK.length} subtext="All evaluations" icon={FileText} />
-            <MetricCard title="Avg Score" value={`${Math.round(REPORTS_MOCK.reduce((a, r) => a + (r.score / r.totalQuestions) * 100, 0) / REPORTS_MOCK.length)}%`} subtext="Across reports" icon={BarChart3} />
-            <MetricCard title="Schools" value={stateSchools.length} subtext={`In ${userState}`} icon={SchoolIcon} />
-            <MetricCard title="Districts" value={stateDistricts.length} subtext="Active jurisdictions" icon={MapPin} />
-          </div>
-          <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
-            <PageHeader title={`District-Wise School Reports — ${userState}`} desc="Evaluation reports organized by district and school" />
-            <div className="space-y-3 mt-4">{stateDistricts.map(dc => {
-              const isExpanded = expandedDistRpt === dc;
-              const distSchools = stateSchools.filter(s => s.districtCode === dc);
-              return (
-                <div key={dc}>
-                  <button onClick={() => setExpandedDistRpt(isExpanded ? null : dc)} className={`w-full flex items-center gap-3 p-3 border rounded-lg text-left hover:bg-slate-50 transition-all ${isExpanded ? 'border-indigo-300 bg-indigo-50' : 'border-slate-100'}`}>
-                    <span className="font-bold text-sm w-16">{dc}</span>
-                    <span className="text-sm flex-1">{DISTRICTS.find(d => d.code === dc)?.name || dc}</span>
-                    <span className="text-xs text-slate-500">{distSchools.length} schools</span>
-                    <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
-                  </button>
-                  {isExpanded && (
-                    <div className="ml-6 mt-2 space-y-4 pl-4 border-l-2 border-indigo-200">
-                      {distSchools.map(sch => {
-                        const schStudents = STUDENTS_MOCK.filter(st => st.schoolId === sch.id);
-                        const schReports = REPORTS_MOCK.filter(r => schStudents.some(st => st.id === r.studentId));
-                        const avgScore = schReports.length > 0 ? Math.round(schReports.reduce((a, r) => a + (r.score / r.totalQuestions) * 100, 0) / schReports.length) : 0;
-                        return (
-                          <div key={sch.id} className="border border-slate-200 rounded-xl p-4">
-                            <div className="flex justify-between items-center mb-3"><h4 className="font-bold text-slate-900 text-sm">{sch.name}</h4><span className="text-xs text-slate-400">{sch.blockCode} · {sch.strength}</span></div>
-                            <div className="grid grid-cols-3 gap-3 mb-3">
-                              <div className="text-center bg-slate-50 rounded-lg p-2"><div className="text-lg font-bold text-slate-900">{schReports.length}</div><div className="text-[10px] text-slate-400">Reports</div></div>
-                              <div className="text-center bg-slate-50 rounded-lg p-2"><div className={`text-lg font-bold ${avgScore >= 70 ? 'text-emerald-600' : 'text-amber-600'}`}>{avgScore}%</div><div className="text-[10px] text-slate-400">Avg Score</div></div>
-                              <div className="text-center bg-slate-50 rounded-lg p-2"><div className="text-lg font-bold text-slate-900">{schStudents.length}</div><div className="text-[10px] text-slate-400">Students</div></div>
-                            </div>
-                            {schReports.length > 0 ? (
-                              <div className="space-y-2">{schReports.map(r => {
-                                const student = schStudents.find(st => st.id === r.studentId);
-                                const scorePct = Math.round((r.score / r.totalQuestions) * 100);
-                                return (
-                                  <div key={r.id} className="border border-slate-100 rounded-lg p-3 text-sm">
-                                    <div className="flex justify-between items-center"><span className="font-semibold">{student?.name || 'N/A'}</span><span className={`text-xs font-mono font-bold px-2 py-0.5 rounded ${scorePct >= 80 ? 'bg-emerald-50 text-emerald-700' : scorePct >= 60 ? 'bg-amber-50 text-amber-700' : 'bg-red-50 text-red-700'}`}>{r.score}/{r.totalQuestions} ({scorePct}%)</span></div>
-                                    <p className="text-xs text-slate-500 mt-1">{r.narrative}</p>
-                                    <div className="flex gap-1 mt-1.5">{Object.entries(r.conceptMastery).map(([t, m]) => (
-                                      <span key={t} className={`text-[9px] font-mono font-bold px-1.5 py-0.5 rounded border ${m === 'Strong' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : m === 'Satisfactory' ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-red-50 text-red-700 border-red-200'}`}>{t}</span>
-                                    ))}</div>
-                                  </div>
-                                );
-                              })}</div>
-                            ) : <p className="text-xs text-slate-400 text-center py-3">No evaluation reports for this school yet.</p>}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              );
-            })}</div>
-          </div>
-        </div>
-      );
-    }
     return (
-      <div className="space-y-6">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <MetricCard title="Total Reports" value={REPORTS_MOCK.length} subtext="All evaluations" icon={FileText} />
-          <MetricCard title="Avg Score" value={`${Math.round(REPORTS_MOCK.reduce((a, r) => a + (r.score / r.totalQuestions) * 100, 0) / REPORTS_MOCK.length)}%`} subtext="Across reports" icon={BarChart3} />
-          <MetricCard title="Strong Concepts" value={REPORTS_MOCK.reduce((a, r) => a + Object.values(r.conceptMastery).filter(v => v === 'Strong').length, 0)} subtext="Mastered topics" icon={Award} />
-        </div>
-        <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm space-y-4">
-          <PageHeader title="Evaluation Reports" desc="Detailed assessment narratives and concept mastery breakdowns" />
-          {REPORTS_MOCK.map(r => {
-            const student = STUDENTS_MOCK.find(s => s.id === r.studentId);
-            const isExpanded = expandedReportId === r.id;
-            
-            // Mock exam questions and student responses for side-by-side preview
-            const examResponses = student ? (
-              student.id === 's1' ? [
-                { question: 'Q1: Match objects one-to-one (One-to-One Correspondence)', studentAnswer: '3 (incorrect match count)', correctAnswer: 'Matched all 5 items', status: 'Incorrect' },
-                { question: 'Q2: Odd One Out - Select non-conforming object from [ball, book, table, pen]', studentAnswer: 'B (Book)', correctAnswer: 'table (furniture classification)', status: 'Incorrect' },
-                { question: 'Q3: Single Digit Addition - Solve: 5 + 4 = ?', studentAnswer: '9', correctAnswer: '9', status: 'Correct' },
-                { question: 'Q4: Single Digit Subtraction - Solve: 8 - 3 = ?', studentAnswer: '5', correctAnswer: '5', status: 'Correct' },
-                { question: 'Q5: Identify shape with 3 corners and 3 straight sides', studentAnswer: 'Triangle', correctAnswer: 'Triangle', status: 'Correct' }
-              ] : student.id === 's2' ? [
-                { question: 'Q1: Counting up to 10 - Count the apples: 🍎🍎🍎🍎', studentAnswer: '4', correctAnswer: '4', status: 'Correct' },
-                { question: 'Q2: Odd One Out - Select non-matching item: [square, circle, red-block, triangle]', studentAnswer: 'red-block', correctAnswer: 'red-block', status: 'Correct' },
-                { question: 'Q3: Pattern recognition - What comes next in sequence: 🔴🔵🔴🔵 ?', studentAnswer: '🔵', correctAnswer: '🔴', status: 'Incorrect' },
-                { question: 'Q4: Simple Addition - Solve: 3 + 2 = ?', studentAnswer: '5', correctAnswer: '5', status: 'Correct' }
-              ] : [
-                { question: 'Q1: Place Value Designation - What is the value of 7 in 372?', studentAnswer: '70 (7 tens)', correctAnswer: '70', status: 'Correct' },
-                { question: 'Q2: Single-Digit Multiplication - Solve: 6 × 3 = ?', studentAnswer: '18', correctAnswer: '18', status: 'Correct' },
-                { question: 'Q3: Double-Digit Subtraction with Borrowing - Solve: 42 - 17 = ?', studentAnswer: '25', correctAnswer: '25', status: 'Correct' },
-                { question: 'Q4: Simple Division - Solve: 15 ÷ 3 = ?', studentAnswer: '5', correctAnswer: '5', status: 'Correct' }
-              ]
-            ) : [];
-
-            return (
-              <div key={r.id} className="border border-slate-200 rounded-lg p-4 space-y-3 hover:border-slate-300 transition-all">
-                <div className="flex justify-between items-center"><span className="font-semibold text-sm">{student?.name || 'Unknown'}</span><span className="text-xs text-slate-400">{new Date(r.timestamp).toLocaleDateString()}</span></div>
-                <div className="flex gap-4 text-sm"><span>Score: <strong>{r.score}/{r.totalQuestions}</strong></span><span>Level: <strong>L{r.recommendedLevel}.{r.recommendedSubLevel ?? 0}</strong></span></div>
-                
-                <div className="bg-slate-50 border border-slate-100 rounded-lg p-3">
-                  <span className="text-[9px] font-mono font-bold uppercase text-slate-400 tracking-wider">Evaluation Report Narrative</span>
-                  <p className="text-xs text-slate-600 mt-1 leading-relaxed whitespace-pre-line">{r.narrative}</p>
-                </div>
-
-                <div className="flex flex-wrap gap-2">{Object.entries(r.conceptMastery).map(([t, m]) => (
-                  <span key={t} className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded ${m === 'Strong' ? 'bg-green-50 text-green-700 border border-green-200' : m === 'Satisfactory' ? 'bg-blue-50 text-blue-700 border border-blue-200' : 'bg-red-50 text-red-700 border border-red-200'}`}>{t}: {m}</span>
-                ))}</div>
-
-                <div className="pt-2 border-t border-slate-100 flex justify-between items-center">
-                  <div className="flex gap-3">
-                    <button onClick={() => setExpandedReportId(isExpanded ? null : r.id)} className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 flex items-center gap-1">
-                      {isExpanded ? 'Hide Exam Sheet' : '📋 View Student Exam Responses'}
-                    </button>
-                    {student && (
-                      <button onClick={() => handleDownloadPDF(student, r, examResponses)} className="text-xs font-semibold text-emerald-650 hover:text-emerald-800 flex items-center gap-1">
-                        📥 Download PDF Report
-                      </button>
-                    )}
-                  </div>
-                  <span className="text-[10px] text-slate-400 font-mono">Assigned from Diagnostic Pipeline</span>
-                </div>
-
-                {isExpanded && (
-                  <div className="mt-3 border border-slate-200 rounded-lg overflow-hidden bg-slate-50 text-xs">
-                    <div className="bg-slate-100 px-3 py-2 font-bold text-slate-700 border-b border-slate-200">Side-by-Side Exam Grader Report</div>
-                    <div className="divide-y divide-slate-200">
-                      {examResponses.map((item, idx) => (
-                        <div key={idx} className="p-3 space-y-1">
-                          <div className="font-semibold text-slate-800">{item.question}</div>
-                          <div className="grid grid-cols-2 gap-2 mt-1 pt-1 border-t border-dotted border-slate-200">
-                            <div>
-                              <span className="text-[9px] text-slate-400 uppercase font-mono block">Student Response</span>
-                              <span className={`font-medium ${item.status === 'Correct' ? 'text-green-700' : 'text-red-700'}`}>{item.studentAnswer}</span>
-                            </div>
-                            <div>
-                              <span className="text-[9px] text-slate-400 uppercase font-mono block">Correct Keys</span>
-                              <span className="font-medium text-slate-800">{item.correctAnswer}</span>
-                            </div>
-                          </div>
-                          <div className="pt-1">
-                            <span className={`inline-block px-1.5 py-0.5 text-[9px] font-bold font-mono rounded ${item.status === 'Correct' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>{item.status === 'Correct' ? 'PASS' : 'FAIL'}</span>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      </div>
+      <StudentReportsPanel
+        classes={classes}
+        activeClass={activeClass}
+        students={activeClassStudents}
+        teacherClassId={teacherClassId}
+        onTeacherClassIdChange={(id) => onTeacherClassIdChange?.(id)}
+        reports={REPORTS_MOCK}
+        onDownloadPDF={handleDownloadPDF}
+      />
     );
   }
 

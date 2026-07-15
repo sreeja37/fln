@@ -139,6 +139,15 @@ export interface EvaluationReport {
   recommendedLevel: number;
   recommendedSubLevel?: number;
   timestamp: string;
+  questionResponses?: {
+    question: string;
+    studentAnswer: string;
+    correctAnswer: string;
+    status: 'Correct' | 'Incorrect';
+    feedback?: string;
+  }[];
+  teacherRemarks?: string;
+  aiRecommendations?: string;
 }
 
 export interface Ticket {

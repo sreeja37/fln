@@ -499,8 +499,8 @@ export function getInitialSeedData(): MockDatabaseSchema {
 
   const evaluationReports: EvaluationReport[] = [
     {
-      id: 'rep_s1_1001',
-      studentId: 's1',
+      id: 'rep_amb_g2_1_1001',
+      studentId: 's_amb_g2_1',
       worksheetId: 'WS_1001',
       score: 100,
       totalQuestions: 2,
@@ -510,8 +510,8 @@ export function getInitialSeedData(): MockDatabaseSchema {
       timestamp: '2026-06-15T11:15:00Z'
     },
     {
-      id: 'rep_s3_1002',
-      studentId: 's3',
+      id: 'rep_amb_g4_1_1002',
+      studentId: 's_amb_g4_1',
       worksheetId: 'WS_1002',
       score: 100,
       totalQuestions: 2,
@@ -567,8 +567,8 @@ export function getInitialSeedData(): MockDatabaseSchema {
     },
     // ── Additional diagnostic evaluation reports for students with diagnostics ──
     {
-      id: 'rep_s2_diag',
-      studentId: 's2',
+      id: 'rep_amb_g2_2_diag',
+      studentId: 's_amb_g2_2',
       worksheetId: 'diagnostic',
       score: 4,
       totalQuestions: 6,
@@ -591,8 +591,8 @@ export function getInitialSeedData(): MockDatabaseSchema {
       timestamp: '2026-05-20T09:30:00Z'
     },
     {
-      id: 'rep_s6_diag',
-      studentId: 's6',
+      id: 'rep_amb_g4_2_diag',
+      studentId: 's_amb_g4_2',
       worksheetId: 'diagnostic',
       score: 5,
       totalQuestions: 6,
