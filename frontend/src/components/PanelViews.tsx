@@ -5,6 +5,7 @@ import { Table, Column } from './Table';
 import { MetricCard } from './Card';
 import { TeacherClassSelector } from './TeacherClassSelector';
 import { StudentProfilePanel } from './StudentProfilePanel';
+import { StudentPerformancePanel } from './StudentPerformancePanel';
 
 interface PanelViewsProps {
   activePanel: string;
@@ -548,54 +549,17 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
   }
 
   if (panel === 'performance') {
-    const isTeacher = currentUser.role === UserRole.TEACHER || currentUser.role === UserRole.VOLUNTEER;
-    // Performance panel uses the same lifted teacherClassId as the dashboard.
-    // Falls back to the unfiltered `students` list only when no grade is picked
-    // (e.g., a non-teacher role viewing the same panel).
-    const perfRoster = activeClassStudents.length > 0
-      ? activeClassStudents
-      : students;
-    const topStudents = [...perfRoster].sort((a, b) => b.currentLevel - a.currentLevel).slice(0, 5);
-    const totalStudents = perfRoster.length;
-    const avgLevel = totalStudents > 0
-      ? `L${Math.round(perfRoster.reduce((a, st) => a + st.currentLevel, 0) / totalStudents)}`
-      : '—';
-    const certified = perfRoster.filter(s => s.currentLevel >= 5).length;
-    const pendingDiag = perfRoster.filter(s => s.levelHistory.length === 0).length;
     return (
-      <div className="space-y-6">
-        {/* Shared grade selector so performance stays in sync with dashboard / student list. */}
-        <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
-          <TeacherClassSelector
-            classes={classes}
-            value={teacherClassId}
-            onChange={(id) => onTeacherClassIdChange?.(id)}
-            label="Active Grade"
-          />
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <MetricCard title="Total Students" value={totalStudents} subtext={activeClass ? `${activeClass.className} roster` : 'Active roster'} icon={Users} />
-          <MetricCard title="Avg Level" value={avgLevel} subtext="Class average" icon={BarChart3} />
-          <MetricCard title="Certified" value={`${certified}`} subtext="Level 5+ achieved" icon={Award} />
-          <MetricCard title="Pending Diagnostic" value={pendingDiag} subtext="Need placement" icon={ShieldAlert} />
-        </div>
-        <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm">
-          <PageHeader title={isTeacher ? "Class Performance" : "School Performance"} desc="FLN level distribution and trends" />
-          <div className="space-y-3">
-            <h4 className="text-xs font-mono font-bold text-slate-500 uppercase">Top Performing Students</h4>
-            {topStudents.length === 0 ? (
-              <p className="text-xs text-slate-400 text-center py-6 border border-slate-100 rounded-lg">No students in the selected grade yet.</p>
-            ) : (
-              <div className="space-y-2">{topStudents.map(s => (
-                <div key={s.id} className="flex justify-between items-center p-3 border border-slate-100 rounded-lg">
-                  <div className="flex items-center gap-3"><span className="text-sm font-semibold">{s.name}</span><span className="text-xs text-slate-400">{s.classGroup}</span></div>
-                  <div className="flex items-center gap-4"><div className="w-32 h-2 bg-slate-100 rounded-full overflow-hidden"><div className="h-full bg-emerald-500 rounded-full" style={{ width: `${(s.currentLevel / 59) * 100}%` }} /></div><span className="font-mono font-bold text-sm">L{s.currentLevel}</span></div>
-                </div>
-              ))}</div>
-            )}
-          </div>
-        </div>
-      </div>
+      <StudentPerformancePanel
+        classes={classes}
+        activeClass={activeClass}
+        students={activeClassStudents}
+        teacherClassId={teacherClassId}
+        onTeacherClassIdChange={(id) => onTeacherClassIdChange?.(id)}
+        reports={REPORTS_MOCK}
+        worksheets={WORKSHEETS_MOCK}
+        diagnosticHistory={DIAGNOSTIC_HISTORY}
+      />
     );
   }
 
