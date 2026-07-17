@@ -25,9 +25,32 @@ import { Bell, Settings, ShieldCheck } from 'lucide-react';
 
 export default function App() {
   const navigate = useNavigate();
-  const [token, setToken] = useState<string | null>(localStorage.getItem('fln_token'));
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const [currentView, setCurrentView] = useState<'home' | 'login' | 'dashboard'>('home');
+  const [token, setToken] = useState<string | null>("dev-token");
+
+  // Login is bypassed for the demo teacher workflow: `token` is seeded with
+  // "dev-token" and the backend auth middleware accepts it directly. But the
+  // axios request interceptor in `services/api.ts` reads the bearer token
+  // from `localStorage["fln_token"]` — not from React state. Mirror the
+  // active token into localStorage once on mount so every API call carries
+  // the Authorization header. This is intentionally the only sync point:
+  // we never touch `api.ts` and we never modify the interceptor.
+  useEffect(() => {
+    const existing = localStorage.getItem('fln_token');
+    if (token && existing !== token) {
+      localStorage.setItem('fln_token', token);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+const [currentUser, setCurrentUser] = useState<User>({
+  id: "temp001",
+  name: "Demo Teacher",
+  email: "teacher@test.com",
+  role: "teacher",
+  schoolId: "AP_GNT_GNT_01_01",
+});
+
+const [currentView, setCurrentView] = useState<'home' | 'login' | 'dashboard'>("dashboard");
   const [activePanel, setActivePanel] = useState<string>('workspace');
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [toast, setToast] = useState<string | null>(null);
@@ -37,34 +60,34 @@ export default function App() {
     window.setTimeout(() => setToast(null), 4000);
   };
 
-  useEffect(() => {
-    const checkSession = async () => {
-      if (!token) return;
+  // useEffect(() => {
+  //   const checkSession = async () => {
+  //     if (!token) return;
 
-      try {
-        const res = await fetch('/api/auth/me', {
-          headers: { Authorization: `Bearer ${token}` },
-        });
+  //     try {
+  //       const res = await fetch('/api/auth/me', {
+  //         headers: { Authorization: `Bearer ${token}` },
+  //       });
 
-        if (!res.ok) {
-          setToken(null);
-          localStorage.removeItem('fln_token');
-          setCurrentView('home');
-          return;
-        }
+  //       if (!res.ok) {
+  //         setToken(null);
+  //         localStorage.removeItem('fln_token');
+  //         setCurrentView('home');
+  //         return;
+  //       }
 
-        const data = await res.json();
-        setCurrentUser(data.user);
-        setCurrentView('dashboard');
-      } catch {
-        setToken(null);
-        localStorage.removeItem('fln_token');
-        setCurrentView('home');
-      }
-    };
+  //       const data = await res.json();
+  //       setCurrentUser(data.user);
+  //       setCurrentView('dashboard');
+  //     } catch {
+  //       setToken(null);
+  //       localStorage.removeItem('fln_token');
+  //       setCurrentView('home');
+  //     }
+  //   };
 
-    checkSession();
-  }, [token]);
+  //   checkSession();
+  // }, [token]);
 
   const handleLoginSuccess = (newToken: string, user: User) => {
     setToken(newToken);
@@ -99,15 +122,19 @@ export default function App() {
 
     switch (currentUser.role) {
       case 'superadmin':
-        return <SuperadminDashboard user={currentUser} />;
-      case 'admin':
-        return <AdminDashboard user={currentUser} />;
-      case 'school':
-        return <SchoolDashboard user={currentUser} />;
-      case 'teacher':
-        return <TeacherDashboard user={currentUser} />;
-      case 'volunteer':
-        return <VolunteerDashboard user={currentUser} />;
+  return <SuperadminDashboard user={currentUser} token={token!} />;
+
+case 'admin':
+  return <AdminDashboard user={currentUser} token={token!} />;
+
+case 'school':
+  return <SchoolDashboard user={currentUser} token={token!} />;
+
+case 'teacher':
+  return <TeacherDashboard user={currentUser} token={token!} />;
+
+case 'volunteer':
+  return <VolunteerDashboard user={currentUser} token={token!} />;
       default:
         return <div />;
     }

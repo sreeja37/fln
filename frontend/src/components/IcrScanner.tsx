@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Student, ClassGroup, Question, EvaluationReport, User } from '../types';
+import { useStudents } from '../hooks/useStudents';
 
 interface IcrScannerProps {
   token: string;
@@ -11,7 +12,7 @@ type ScannerStep = 'select' | 'paper' | 'scanning' | 'verify' | 'result';
 
 export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack }) => {
   const [classes, setClasses] = useState<ClassGroup[]>([]);
-  const [students, setStudents] = useState<Student[]>([]);
+  const { data: students = [] } = useStudents();
   const [selectedClassId, setSelectedClassId] = useState('');
   const [selectedStudentId, setSelectedStudentId] = useState('');
 
@@ -27,25 +28,18 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack }) =
   const [report, setReport] = useState<EvaluationReport | null>(null);
 
   useEffect(() => {
-    const fetchData = async () => {
+    const fetchClasses = async () => {
       try {
-        const [clsRes, stdRes] = await Promise.all([
-          fetch('/api/classes', { headers: { 'Authorization': `Bearer ${token}` } }),
-          fetch('/api/students', { headers: { 'Authorization': `Bearer ${token}` } })
-        ]);
+        const clsRes = await fetch('/api/classes', { headers: { 'Authorization': `Bearer ${token}` } });
         if (clsRes.ok) {
           const clsData = await clsRes.json();
           if (Array.isArray(clsData)) setClasses(clsData);
-        }
-        if (stdRes.ok) {
-          const stdData = await stdRes.json();
-          if (Array.isArray(stdData)) setStudents(stdData);
         }
       } catch (err) {
         console.error(err);
       }
     };
-    fetchData();
+    fetchClasses();
   }, [token]);
 
   const selectedStudent = students.find(s => s.id === selectedStudentId);

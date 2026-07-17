@@ -4,6 +4,9 @@ import { env } from './config/environment';
 
 async function start(): Promise<void> {
   await connectDatabase();
+  app.get("/whoami-new", (req, res) => {
+  res.send("NEW BACKEND");
+});
 
   app.listen(env.port, () => {
     console.log(`🚀 Server running on port ${env.port}`);

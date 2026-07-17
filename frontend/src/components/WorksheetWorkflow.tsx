@@ -26,25 +26,6 @@ export const WorksheetWorkflow: React.FC<WorksheetWorkflowProps> = ({ classGroup
   const [studentAnswers, setStudentAnswers] = useState<{ [qId: string]: string }>({});
   const [evaluationResult, setEvaluationResult] = useState<{ report: EvaluationReport } | null>(null);
 
-  // Poll/fetch worksheet for this class
-  const fetchWorksheets = async () => {
-    try {
-      const res = await fetch('/api/classes', {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (res.ok) {
-        // Fetch all generated worksheets
-        const wsRes = await fetch('/api/logbook', { // logbook fetches can reveal ws stats, or list directly
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
-        // Simply pull directly from DB log details or find general worksheets
-        const activeWsRes = await fetch('/api/students', { // student lists
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
-      }
-    } catch (_) {}
-  };
-
   const generateWorksheets = async (cycle: 'Baseline' | 'Mid-year' | 'End-of-year') => {
     setLoading(true);
     setError('');

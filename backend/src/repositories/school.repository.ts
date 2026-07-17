@@ -24,6 +24,31 @@ export class SchoolRepository {
       .exec();
   }
 
+  /**
+   * Look up a single school by its seeded business string id (e.g.
+   * `"AP_GNT_GNT_01_01"`). This is distinct from `findByCode`, which
+   * queries the managed-schema `code` field; the seeded `schools`
+   * collection has docs whose primary identifier is a string `id` and
+   * which lack the managed-schema `code` field.
+   *
+   * Returns just `{ id, name }` via a projection to avoid Materialising
+   * the full Mongoose document (the strict `School` schema would otherwise
+   * reject the seeded docs because they're missing the required `code`,
+   * `state`, `district`, `block`, `strength`, etc. fields).
+   *
+   * Used by StudentService.getStudentProfile to enrich a student record
+   * with its school's human-readable name without touching the School
+   * schema's required-field contract.
+   */
+  async findByBusinessId(businessId: string): Promise<{ id: string; name: string } | null> {
+    const doc = await School.collection.findOne(
+      { id: businessId },
+      { projection: { _id: 0, id: 1, name: 1 } }
+    );
+    if (!doc) return null;
+    return { id: doc.id as string, name: doc.name as string };
+  }
+
   async findAll(filter?: FilterQuery<ISchoolDocument>): Promise<ISchoolDocument[]> {
     return School.find(filter || {})
       .populate('state', 'name code')

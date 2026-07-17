@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useStudents } from '../hooks/useStudents';
 import { User, UserRole, Student, ClassGroup, School, EvaluationReport, LogEntry, Ticket } from '../types';
 import { Users, ShieldAlert, BookOpen, UserCheck, Calendar, ArrowRight, CheckCircle2, XCircle, SlidersHorizontal, Layers, Award, MapPin, School as SchoolIcon, BarChart3, FileText, ClipboardList, Building2, GraduationCap, BookMarked, Globe, Settings, Database, RefreshCw, Search, ChevronDown } from 'lucide-react';
 import { Table, Column } from './Table';
@@ -10,16 +11,6 @@ interface PanelViewsProps {
   currentUser: User;
   token: string;
 }
-
-const STUDENTS_FALLBACK: Student[] = [
-  { id: 's1', name: 'Amanpreet Singh', age: 8, classGroup: 'Class 2', section: 'A', schoolId: 'gps-mt-001', currentLevel: 12, currentSubLevel: 0, targetLevel: 13, aadharMasked: 'XXXX-XXXX-1234', levelHistory: [{ level: 12, subLevel: 0, date: '2026-03-15', reason: 'Diagnostic' }], streak: 3 },
-  { id: 's2', name: 'Jasmine Kaur', age: 7, classGroup: 'Class 2', section: 'A', schoolId: 'gps-mt-001', currentLevel: 8, currentSubLevel: 1, targetLevel: 12, aadharMasked: 'XXXX-XXXX-5678', levelHistory: [{ level: 8, subLevel: 1, date: '2026-02-20', reason: 'Mid-year' }], streak: 1 },
-  { id: 's3', name: 'Rohit Kumar', age: 9, classGroup: 'Class 3', section: 'A', schoolId: 'gps-mt-001', currentLevel: 36, currentSubLevel: 0, targetLevel: 37, aadharMasked: 'XXXX-XXXX-9012', levelHistory: [{ level: 36, date: '2026-01-10', reason: 'Baseline' }], streak: 5 },
-  { id: 's4', name: 'Priya Sharma', age: 8, classGroup: 'Class 2', section: 'A', schoolId: 'gps-mt-001', currentLevel: 10, currentSubLevel: 2, targetLevel: 14, aadharMasked: 'XXXX-XXXX-3456', levelHistory: [], streak: 0 },
-  { id: 's5', name: 'Arjun Verma', age: 7, classGroup: 'Class 2', section: 'A', schoolId: 'gps-mt-001', currentLevel: 6, currentSubLevel: 0, targetLevel: 11, aadharMasked: 'XXXX-XXXX-7890', levelHistory: [{ level: 6, date: '2026-04-01', reason: 'Diagnostic' }], streak: 2 },
-  { id: 's6', name: 'Neha Gupta', age: 8, classGroup: 'Class 3', section: 'A', schoolId: 'gps-mt-001', currentLevel: 38, currentSubLevel: 1, targetLevel: 40, aadharMasked: 'XXXX-XXXX-2345', levelHistory: [{ level: 38, date: '2026-03-01', reason: 'Mid-year' }], streak: 4 },
-  { id: 's7', name: 'Simran Kaur', age: 6, classGroup: 'Class 1', section: 'A', schoolId: 'gps-mt-001', currentLevel: 4, currentSubLevel: 0, targetLevel: 8, aadharMasked: 'XXXX-XXXX-6789', levelHistory: [], streak: 0 },
-];
 
 const REPORTS_MOCK: EvaluationReport[] = [
   { id: 'r1', studentId: 's1', worksheetId: 'ws1', score: 8, totalQuestions: 10, conceptMastery: { 'Number Sense': 'Strong', 'Addition': 'Satisfactory', 'Subtraction': 'Needs Practice' }, narrative: 'Shows good number sense but needs practice with borrowing in subtraction.', recommendedLevel: 12, timestamp: '2026-03-15T10:00:00Z' },
@@ -174,14 +165,87 @@ function PageHeader({ title, desc, icon }: { title: string; desc: string; icon?:
 }
 
 function EmptyStudents({ students }: { students: Student[] }) {
+  // Roster-scoped Class + Section filters. Decoupled from any other panel's
+  // state in PanelViews — keeps the Student List page self-contained.
+  const [rosterClassName, setRosterClassName] = useState<string>('all');
+  const [rosterSection, setRosterSection] = useState<string>('all');
+
+  // Derive dropdown options from the currently-loaded student data so the
+  // filter chips match whatever the API returned (per requirement 4).
+  // Sorted by natural Class order then alphabetical for sections.
+  const classOptions = Array.from(new Set(students.map(s => s.classGroup)))
+    .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  const sectionOptions = Array.from(new Set(students.map(s => s.section)))
+    .sort();
+
+  // Filtered subset drives <Table data>. <Table>'s built-in search + CSV
+  // export both operate on this `data` prop, so they see only the filtered
+  // subset automatically.
+  const filteredStudents = students.filter(
+    s => (rosterClassName === 'all' || s.classGroup === rosterClassName) &&
+         (rosterSection === 'all' || s.section === rosterSection)
+  );
+
   const cols: Column<Student>[] = [
     { header: 'ID', accessor: 'id', className: 'font-mono text-xs text-slate-400 dark:text-slate-500' },
     { header: 'Name', accessor: 'name', sortKey: 'name', className: 'font-semibold text-slate-800 dark:text-slate-100' },
     { header: 'Class', accessor: 'classGroup', className: '' },
     { header: 'Level', accessor: (s) => `L${s.currentLevel}.${s.currentSubLevel ?? 0}`, className: 'font-mono' },
     { header: 'Streak', accessor: (s) => `${s.streak} 🔥`, className: '' },
+    {
+      header: 'Actions',
+      accessor: (s) => (
+        <button
+          type="button"
+          onClick={() => { /* navigation wired in the next phase */ }}
+          className="bg-slate-900 hover:bg-slate-700 dark:bg-white dark:hover:bg-slate-200 text-white dark:text-slate-900 font-mono text-[10px] font-bold px-3 py-1.5 rounded-lg shadow-sm cursor-pointer transition-all active:scale-95"
+          aria-label={`View profile of ${s.name}`}
+        >
+          View Profile
+        </button>
+      )
+    },
   ];
-  return <Table data={students} columns={cols} searchPlaceholder="Search students..." searchKey="name" />;
+
+  return (
+    <div className="space-y-3">
+      {/* Class + Section filters above the roster table */}
+      <div className="flex items-center gap-3 flex-wrap">
+        <label className="flex items-center gap-2 text-[10px] font-mono font-bold uppercase text-slate-400 dark:text-slate-500">
+          Class
+          <select
+            value={rosterClassName}
+            onChange={(e) => setRosterClassName(e.target.value)}
+            className="text-[10px] font-mono font-bold uppercase bg-transparent border border-slate-300 dark:border-slate-600 rounded px-2 py-1 text-slate-700 dark:text-slate-300 focus:border-slate-900 dark:focus:border-white outline-none"
+            aria-label="Filter roster by class"
+          >
+            <option value="all">All</option>
+            {classOptions.map(c => (
+              <option key={c} value={c}>{c}</option>
+            ))}
+          </select>
+        </label>
+        <label className="flex items-center gap-2 text-[10px] font-mono font-bold uppercase text-slate-400 dark:text-slate-500">
+          Section
+          <select
+            value={rosterSection}
+            onChange={(e) => setRosterSection(e.target.value)}
+            className="text-[10px] font-mono font-bold uppercase bg-transparent border border-slate-300 dark:border-slate-600 rounded px-2 py-1 text-slate-700 dark:text-slate-300 focus:border-slate-900 dark:focus:border-white outline-none"
+            aria-label="Filter roster by section"
+          >
+            <option value="all">All</option>
+            {sectionOptions.map(sec => (
+              <option key={sec} value={sec}>{sec}</option>
+            ))}
+          </select>
+        </label>
+        <span className="text-[10px] font-mono text-slate-400 dark:text-slate-500 ml-auto">
+          {filteredStudents.length} of {students.length} students
+        </span>
+      </div>
+      <Table data={filteredStudents} columns={cols} searchPlaceholder="Search students..." searchKey="name" />
+    </div>
+  );
 }
 
 export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser, token }) => {
@@ -200,24 +264,30 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
   const [userRoleFilter, setUserRoleFilter] = useState('superadmin');
   const [userSearch, setUserSearch] = useState('');
 
-  const [apiStudents, setApiStudents] = useState<Student[]>([]);
+  const { data: students = [], isLoading: studentsLoading, isError: studentsError } = useStudents();
   const [apiSchools, setApiSchools] = useState<School[]>([]);
   const [apiUsers, setApiUsers] = useState<any[]>([]);
 
   useEffect(() => {
     const headers = { 'Authorization': `Bearer ${token}` };
-    fetch('/api/students', { headers }).then(r => r.json()).then(d => { if (Array.isArray(d)) setApiStudents(d); }).catch(() => {});
     fetch('/api/schools', { headers }).then(r => r.json()).then(d => { if (Array.isArray(d)) setApiSchools(d); }).catch(() => {});
     fetch('/api/admin/coordinators', { headers }).then(r => r.json()).then(d => { if (Array.isArray(d)) setApiUsers(d); }).catch(() => {});
   }, [token]);
 
-  const students = apiStudents.length > 0 ? apiStudents : STUDENTS_FALLBACK;
   const schools = apiSchools.length > 0 ? apiSchools : SCHOOLS_FALLBACK;
   const usersList = apiUsers.length > 0 ? apiUsers : USERS_FALLBACK;
 
   useEffect(() => {
-    if (students.length > 0 && !sel) {
-      setSel(students[0].id);
+    // Auto-select a student as soon as we have any.
+    // - If nothing is selected yet, pick the first one.
+    // - If the previously-selected id is no longer present (e.g. the
+    //   roster refreshed and that student was removed), fall back to
+    //   the first available student instead of leaving `sel` stale.
+    if (students.length > 0) {
+      const stillExists = students.some(x => x.id === sel);
+      if (!sel || !stillExists) {
+        setSel(students[0].id);
+      }
     }
   }, [students, sel]);
 
@@ -371,9 +441,54 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
   }
 
   if (panel === 'student_profile') {
-    const s = students.find(x => x.id === sel) || students[0];
+    // Loading state — students query is still in flight.
+    if (studentsLoading) {
+      return (
+        <div className="flex items-center justify-center py-16 text-sm text-slate-500 dark:text-slate-400">
+          <span>Loading students...</span>
+        </div>
+      );
+    }
 
-    const filteredStudents = students.filter(x =>
+    // Error state — query failed; render the standard empty state.
+    if (studentsError) {
+      return (
+        <div className="text-xs text-slate-400 dark:text-slate-500 text-center py-4">
+          No students found.
+        </div>
+      );
+    }
+
+    // Empty roster — nothing to show.
+    if (students.length === 0) {
+      return (
+        <div className="text-xs text-slate-400 dark:text-slate-500 text-center py-4">
+          No students found.
+        </div>
+      );
+    }
+
+    // Resolve the currently-selected student, never letting `s` be undefined.
+    // If the previously-selected id no longer exists, fall back to the first
+    // student in the roster.
+    const s = students.find(x => x.id === sel) ?? students[0];
+
+    // Defensive: even after the guards above, treat `s` as possibly missing
+    // rather than crashing if the roster empties between renders.
+    if (!s) {
+      return (
+        <div className="text-xs text-slate-400 dark:text-slate-500 text-center py-4">
+          No students found.
+        </div>
+      );
+    }
+
+    // Restrict the dropdown to the currently-selected student's
+    // class + section. Search is applied on top of that scope.
+    const scopedStudents = students.filter(
+      x => x.classGroup === s.classGroup && x.section === s.section
+    );
+    const filteredStudents = scopedStudents.filter(x =>
       x.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       x.id.toLowerCase().includes(searchQuery.toLowerCase())
     );
@@ -446,7 +561,7 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
                     </div>
                     <div className="max-h-56 overflow-y-auto">
                       {filteredStudents.length === 0 ? (
-                        <p className="text-xs text-slate-400 dark:text-slate-500 text-center py-4">No students found</p>
+                        <p className="text-xs text-slate-400 dark:text-slate-500 text-center py-4">No students found.</p>
                       ) : filteredStudents.map(x => {
                         const isSelected = x.id === sel;
                         const xAtt = ATTENDANCE_MOCK.find(a => a.student === x.name);

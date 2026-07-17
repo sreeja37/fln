@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { useStudents, useCreateStudent, useRefreshStudents } from '../hooks/useStudents';
+import { CreateStudentPayload } from '../services/studentService';
 import { Link } from 'react-router-dom';
 import { User, UserRole, Student, ClassGroup, School, LogEntry, Ticket } from '../types';
 import { DiagnosticWorkflow } from './DiagnosticWorkflow';
@@ -1671,14 +1673,225 @@ export const SchoolDashboard: React.FC<DashboardProps> = ({ user, token }) => {
 // ==========================================
 // 4. TEACHER DASHBOARD
 // ==========================================
+
+/**
+ * Read-only Student Profile modal — opened from the "View Profile" button
+ * in the Teacher Dashboard's Student Roster (column action). Fetches the
+ * enriched profile shape from `GET /api/students/:id` (school-scoped,
+ * tenant-validated server-side) and renders it in a definition-list
+ * card. Missing fields (gender / enrollmentDate today) fall back to a
+ * `Not Available` chip rather than failing or hiding the row.
+ *
+ * Reads the `token` from the open-flow context (TeacherDashboard) so it
+ * inherits the same Authorization header discipline as every other
+ * Teacher Dashboard call. No mutations; no editing; no performance /
+ * worksheets / reports / diagnostics are exposed here.
+ */
+const StudentProfileModal: React.FC<{
+  isOpen: boolean;
+  onClose: () => void;
+  student: Student | null;
+  token: string;
+}> = ({ isOpen, onClose, student, token }) => {
+  type ProfileState =
+    | { status: 'idle' }
+    | { status: 'loading' }
+    | { status: 'error'; message: string }
+    | {
+        status: 'ok';
+        data: {
+          id: string;
+          name: string;
+          age: number;
+          gender: string | null;
+          classGroup: string;
+          section: string;
+          schoolId: string;
+          schoolName: string | null;
+          currentLevel: number;
+          currentSubLevel: number | null;
+          enrollmentDate: string | null;
+        };
+      };
+
+  const [state, setState] = useState<ProfileState>({ status: 'idle' });
+
+  useEffect(() => {
+    if (!isOpen || !student) {
+      setState({ status: 'idle' });
+      return;
+    }
+    let cancelled = false;
+    setState({ status: 'loading' });
+    (async () => {
+      try {
+        const res = await fetch(`/api/students/${encodeURIComponent(student.id)}`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        const body = await res.json();
+        if (cancelled) return;
+        if (!res.ok) {
+          setState({ status: 'error', message: body.message || `Failed to load profile (HTTP ${res.status}).` });
+          return;
+        }
+        setState({ status: 'ok', data: body });
+      } catch {
+        if (!cancelled) setState({ status: 'error', message: 'Network error loading profile.' });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, student, token]);
+
+  if (!isOpen || !student) return null;
+
+  // Helper: renders the value, falling back to "Not Available" for any
+  // null / empty / undefined field per requirement #6.
+  const renderValue = (value: string | number | null | undefined) => {
+    if (value === null || value === undefined) return 'Not Available';
+    if (typeof value === 'string' && value.trim() === '') return 'Not Available';
+    return value;
+  };
+
+  const renderMissingChip = (visible: boolean) =>
+    visible ? (
+      <span className="ml-2 font-mono text-[9px] font-bold uppercase tracking-wider text-zinc-400 dark:text-zinc-500 bg-zinc-100 dark:bg-zinc-800 px-1.5 py-0.5 rounded border border-zinc-200 dark:border-zinc-700">
+        Not Available
+      </span>
+    ) : null;
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-[9999] flex items-center justify-center p-4 backdrop-blur-sm">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="student-profile-title"
+        className="bg-white dark:bg-slate-900 rounded-2xl w-full max-w-2xl max-h-[85vh] flex flex-col shadow-2xl border border-zinc-200 dark:border-zinc-700"
+      >
+        <div className="p-6 border-b border-zinc-200 dark:border-zinc-700 flex justify-between items-start bg-zinc-50 dark:bg-zinc-800 rounded-t-2xl">
+          <div>
+            <h2 id="student-profile-title" className="text-xl font-display font-semibold text-zinc-900 dark:text-white">
+              👤 Student Profile
+            </h2>
+            <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
+              Read-only snapshot. Editing, performance, and worksheet actions are available from the roster.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-zinc-400 hover:text-zinc-650 text-sm font-semibold border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-slate-900 hover:bg-zinc-100 dark:hover:bg-zinc-700 p-2 rounded-lg"
+            aria-label="Close student profile"
+          >
+            Close
+          </button>
+        </div>
+
+        <div className="p-6 overflow-y-auto flex-1 bg-zinc-50/50 dark:bg-zinc-800/50">
+          {state.status === 'loading' && (
+            <div className="p-8 text-center text-xs font-mono text-zinc-500 dark:text-zinc-400">
+              Loading profile…
+            </div>
+          )}
+
+          {state.status === 'error' && (
+            <div className="rounded-lg border border-rose-200 dark:border-rose-800 bg-rose-50 dark:bg-rose-950/40 p-4 text-sm text-rose-700 dark:text-rose-300">
+              {state.message}
+            </div>
+          )}
+
+          {state.status === 'ok' && (
+            <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4">
+              <div>
+                <dt className="font-mono text-[10px] font-bold uppercase tracking-wider text-zinc-450 dark:text-zinc-500 mb-1">Student Name</dt>
+                <dd className="text-sm font-semibold text-zinc-900 dark:text-white">{renderValue(state.data.name)}</dd>
+              </div>
+              <div>
+                <dt className="font-mono text-[10px] font-bold uppercase tracking-wider text-zinc-450 dark:text-zinc-500 mb-1">Student ID</dt>
+                <dd className="font-mono text-sm text-zinc-700 dark:text-zinc-200">{renderValue(state.data.id)}</dd>
+              </div>
+              <div>
+                <dt className="font-mono text-[10px] font-bold uppercase tracking-wider text-zinc-450 dark:text-zinc-500 mb-1">Age</dt>
+                <dd className="text-sm text-zinc-700 dark:text-zinc-200">{renderValue(state.data.age)}</dd>
+              </div>
+              <div>
+                <dt className="font-mono text-[10px] font-bold uppercase tracking-wider text-zinc-450 dark:text-zinc-500 mb-1">Gender</dt>
+                <dd className="text-sm text-zinc-700 dark:text-zinc-200">
+                  {renderValue(state.data.gender)}
+                  {renderMissingChip(state.data.gender === null || state.data.gender === '')}
+                </dd>
+              </div>
+              <div>
+                <dt className="font-mono text-[10px] font-bold uppercase tracking-wider text-zinc-450 dark:text-zinc-500 mb-1">Class</dt>
+                <dd className="text-sm text-zinc-700 dark:text-zinc-200">{renderValue(state.data.classGroup)}</dd>
+              </div>
+              <div>
+                <dt className="font-mono text-[10px] font-bold uppercase tracking-wider text-zinc-450 dark:text-zinc-500 mb-1">Section</dt>
+                <dd className="text-sm text-zinc-700 dark:text-zinc-200">{renderValue(state.data.section)}</dd>
+              </div>
+              <div className="sm:col-span-2">
+                <dt className="font-mono text-[10px] font-bold uppercase tracking-wider text-zinc-450 dark:text-zinc-500 mb-1">School</dt>
+                <dd className="text-sm text-zinc-700 dark:text-zinc-200">
+                  {renderValue(state.data.schoolName)}{' '}
+                  {state.data.schoolName === null && (
+                    <span className="font-mono text-[10px] text-zinc-400 dark:text-zinc-500">({state.data.schoolId})</span>
+                  )}
+                </dd>
+              </div>
+              <div>
+                <dt className="font-mono text-[10px] font-bold uppercase tracking-wider text-zinc-450 dark:text-zinc-500 mb-1">Current Level</dt>
+                <dd>
+                  <span className="font-mono font-bold text-slate-800 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded border border-slate-200 dark:border-slate-700 text-xs">
+                    L{state.data.currentLevel}
+                  </span>
+                </dd>
+              </div>
+              <div>
+                <dt className="font-mono text-[10px] font-bold uppercase tracking-wider text-zinc-450 dark:text-zinc-500 mb-1">Current Sub-Level</dt>
+                <dd>
+                  <span className="font-mono font-bold text-slate-800 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded border border-slate-200 dark:border-slate-700 text-xs">
+                    .{state.data.currentSubLevel ?? 0}
+                  </span>
+                </dd>
+              </div>
+              <div className="sm:col-span-2">
+                <dt className="font-mono text-[10px] font-bold uppercase tracking-wider text-zinc-450 dark:text-zinc-500 mb-1">Enrollment Date</dt>
+                <dd className="text-sm text-zinc-700 dark:text-zinc-200">
+                  {renderValue(state.data.enrollmentDate)}
+                  {renderMissingChip(state.data.enrollmentDate === null || state.data.enrollmentDate === '')}
+                </dd>
+              </div>
+            </dl>
+          )}
+        </div>
+
+        <div className="p-4 border-t border-zinc-200 dark:border-zinc-700 bg-white dark:bg-slate-900 rounded-b-2xl flex justify-end">
+          <button
+            type="button"
+            onClick={onClose}
+            className="font-mono text-xs font-bold px-4 py-2 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-700"
+          >
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+
 export const TeacherDashboard: React.FC<DashboardProps> = ({ user, token }) => {
   const [classes, setClasses] = useState<ClassGroup[]>([]);
-  const [students, setStudents] = useState<Student[]>([]);
+  const { data: students = [] } = useStudents();
+  const createStudent = useCreateStudent();
+  const refreshStudents = useRefreshStudents();
   const [activeClass, setActiveClass] = useState<ClassGroup | null>(null);
 
   // Modal / workflow triggers
   const [diagnosticStudent, setDiagnosticStudent] = useState<Student | null>(null);
   const [baselineStudent, setBaselineStudent] = useState<Student | null>(null);
+  const [profileStudent, setProfileStudent] = useState<Student | null>(null);
   const [showWorksheetPortal, setShowWorksheetPortal] = useState(false);
   const [showLevelRef, setShowLevelRef] = useState(false);
   const [showIcrScanner, setShowIcrScanner] = useState(false);
@@ -1704,11 +1917,19 @@ export const TeacherDashboard: React.FC<DashboardProps> = ({ user, token }) => {
   const [showAddForm, setShowAddForm] = useState(false);
   const [name, setName] = useState('');
   const [age, setAge] = useState('');
-  const [cls, setCls] = useState('Class 2');
-  const [sec, setSec] = useState('A');
   const [aadhar, setAadhar] = useState('');
   const [regError, setRegError] = useState('');
   const [regSuccess, setRegSuccess] = useState('');
+  // Simplified Student Registration: the form owns its own Class + Section
+  // dropdowns (decoupled from activeClass / assigned classes per scope).
+  const [selectedClassName, setSelectedClassName] = useState('Class 2');
+  const [selectedSection, setSelectedSection] = useState('A');
+
+  // Student Roster scope: separate Class + Section dropdowns drive the
+  // roster table filter. These intentionally do NOT share state with the
+  // registration form's dropdowns — the registration form is untouched.
+  const [rosterClassName, setRosterClassName] = useState('Class 2');
+  const [rosterSection, setRosterSection] = useState('A');
 
   const [levelPdfLoading, setLevelPdfLoading] = useState(false);
   const [levelPdfError, setLevelPdfError] = useState('');
@@ -1812,10 +2033,10 @@ export const TeacherDashboard: React.FC<DashboardProps> = ({ user, token }) => {
         setClasses(clsData);
         if (clsData.length > 0) setActiveClass(clsData[0]);
       }
-
-      const stdRes = await fetch('/api/students', { headers: { 'Authorization': `Bearer ${token}` } });
-      const stdData = await stdRes.json();
-      if (Array.isArray(stdData)) setStudents(stdData);
+      // Workflows (diagnostic, baseline, bulk, ICR, worksheet) can mutate
+      // student state server-side, so we also invalidate the students
+      // query cache. Single source of truth — no inline student fetch.
+      refreshStudents();
     } catch (err) {
       console.error(err);
     }
@@ -1850,53 +2071,50 @@ export const TeacherDashboard: React.FC<DashboardProps> = ({ user, token }) => {
     setRegError('');
     setRegSuccess('');
 
+    if (!selectedClassName || !selectedSection) {
+      setRegError('Please select a Class and Section from the dropdowns above.');
+      return;
+    }
+
     if (!name || !age || !aadhar) {
       setRegError('All fields are required.');
       return;
     }
 
-    const schoolId = user.schoolId || (classes.length > 0 ? classes[0].schoolId : '');
+    const schoolId = user.schoolId;
     if (!schoolId) {
       setRegError('No school associated with this user.');
       return;
     }
 
-    const finalClassGroup = activeClass ? activeClass.className : cls;
-    const finalSection = activeClass ? activeClass.section : sec;
+    const finalClassGroup = selectedClassName;
+    const finalSection = selectedSection;
 
-    try {
-      const res = await fetch('/api/students', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          name,
-          age,
-          classGroup: finalClassGroup,
-          section: finalSection,
-          schoolId: schoolId,
-          aadharNumber: aadhar
-        })
-      });
-      const data = await res.json();
-      if (res.ok) {
+    const payload: CreateStudentPayload = {
+      name,
+      age: Number(age),
+      classGroup: finalClassGroup,
+      section: finalSection,
+      schoolId: schoolId,
+      aadharNumber: aadhar,
+    };
+
+    createStudent.mutate(payload, {
+      onSuccess: () => {
         setRegSuccess(`Successfully registered ${name} in ${finalClassGroup} - ${finalSection}!`);
         setName('');
         setAge('');
         setAadhar('');
-        fetchTeacherData();
         setTimeout(() => {
           setShowAddForm(false);
           setRegSuccess('');
         }, 3000);
-      } else {
-        setRegError(data.error || 'Failed to register student.');
-      }
-    } catch (err) {
-      setRegError('Network error. Check connection settings.');
-    }
+      },
+      onError: (err: any) => {
+        const msg = err?.response?.data?.error || err?.message || 'Network error. Check connection settings.';
+        setRegError(msg);
+      },
+    });
   };
 
   if (showBulkDiagnostic) {
@@ -1953,8 +2171,13 @@ export const TeacherDashboard: React.FC<DashboardProps> = ({ user, token }) => {
     );
   }
 
-  // Filter students under selected active class
-  const classStudents = activeClass ? students.filter(s => s.classGroup === activeClass.className && s.section === activeClass.section) : [];
+  // Filter the roster by the roster-scoped Class + Section dropdowns.
+  // GET /api/students already returns the full school roster for the demo
+  // teacher; filtering happens client-side. Changes to rosterClassName /
+  // rosterSection re-derive this value on the next render.
+  const classStudents = students.filter(
+    s => s.classGroup === rosterClassName && s.section === rosterSection
+  );
 
   if (showWorksheetPortal) {
     const effectiveClass = activeClass || (classes.length > 0 ? classes[0] : null);
@@ -2011,7 +2234,9 @@ export const TeacherDashboard: React.FC<DashboardProps> = ({ user, token }) => {
       <div className="border-b border-zinc-200 dark:border-zinc-700 pb-4 flex justify-between items-end">
         <div>
           <h1 className="text-3xl font-display font-semibold text-zinc-900 dark:text-white tracking-tight">Classroom Workspace</h1>
-          <p className="text-zinc-550 dark:text-zinc-400 text-sm mt-0.5 font-medium">Teacher: {user.name} · School Scope: gps-mt-001 Model Town</p>
+          <p className="text-zinc-550 dark:text-zinc-400 text-sm mt-0.5 font-medium">
+            Teacher: {user.name} · School Scope: gps-mt-001 Model Town · Class: {rosterClassName} - {rosterSection}
+          </p>
         </div>
         <div className="flex gap-2">
           <button
@@ -2033,8 +2258,28 @@ export const TeacherDashboard: React.FC<DashboardProps> = ({ user, token }) => {
       {showAddForm && (
         <form onSubmit={handleAddStudent} className="bg-white dark:bg-slate-900 p-6 border border-zinc-200 dark:border-zinc-700 rounded-xl shadow-sm space-y-4">
           <div className="flex justify-between items-center border-b border-zinc-100 dark:border-zinc-800 pb-2">
-            <h4 className="text-xs font-mono font-bold text-zinc-500 dark:text-zinc-400 uppercase">
-              Register Student in <span className="text-zinc-900 dark:text-white">{activeClass ? `${activeClass.className} - ${activeClass.section}` : `${cls} - ${sec}`}</span>
+            <h4 className="text-xs font-mono font-bold text-zinc-500 dark:text-zinc-400 uppercase flex items-center gap-2">
+              Register Student in{' '}
+              <select
+                value={selectedClassName}
+                onChange={(e) => setSelectedClassName(e.target.value)}
+                className="text-zinc-900 dark:text-white bg-transparent border-b border-zinc-300 dark:border-zinc-600 focus:border-zinc-900 dark:focus:border-white outline-none font-mono text-xs uppercase"
+              >
+                <option value="Class 1">Class 1</option>
+                <option value="Class 2">Class 2</option>
+                <option value="Class 3">Class 3</option>
+                <option value="Class 4">Class 4</option>
+              </select>
+              {' - '}
+              <select
+                value={selectedSection}
+                onChange={(e) => setSelectedSection(e.target.value)}
+                className="text-zinc-900 dark:text-white bg-transparent border-b border-zinc-300 dark:border-zinc-600 focus:border-zinc-900 dark:focus:border-white outline-none font-mono text-xs uppercase"
+              >
+                <option value="A">A</option>
+                <option value="B">B</option>
+                <option value="C">C</option>
+              </select>
             </h4>
           </div>
           
@@ -2343,7 +2588,32 @@ export const TeacherDashboard: React.FC<DashboardProps> = ({ user, token }) => {
           {/* Class roster table */}
           <div className="xl:col-span-2 bg-white dark:bg-slate-900 border border-zinc-200 dark:border-slate-700 rounded-xl shadow-sm overflow-hidden">
             <div className="p-4 border-b border-zinc-150 dark:border-zinc-800 flex justify-between items-center bg-zinc-50/50 dark:bg-zinc-800/50">
-              <h3 className="font-display font-medium text-zinc-900 dark:text-white text-sm">Classroom Student Roster ({classStudents.length})</h3>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h3 className="font-display font-medium text-zinc-900 dark:text-white text-sm">
+                  Classroom Student Roster — {rosterClassName} - {rosterSection} ({classStudents.length})
+                </h3>
+                <select
+                  value={rosterClassName}
+                  onChange={(e) => setRosterClassName(e.target.value)}
+                  className="text-[10px] font-mono font-bold uppercase bg-transparent border border-zinc-300 dark:border-zinc-600 rounded px-2 py-1 text-zinc-700 dark:text-zinc-300 focus:border-zinc-900 dark:focus:border-white outline-none"
+                  aria-label="Filter roster by class"
+                >
+                  <option value="Class 1">Class 1</option>
+                  <option value="Class 2">Class 2</option>
+                  <option value="Class 3">Class 3</option>
+                  <option value="Class 4">Class 4</option>
+                </select>
+                <select
+                  value={rosterSection}
+                  onChange={(e) => setRosterSection(e.target.value)}
+                  className="text-[10px] font-mono font-bold uppercase bg-transparent border border-zinc-300 dark:border-zinc-600 rounded px-2 py-1 text-zinc-700 dark:text-zinc-300 focus:border-zinc-900 dark:focus:border-white outline-none"
+                  aria-label="Filter roster by section"
+                >
+                  <option value="A">A</option>
+                  <option value="B">B</option>
+                  <option value="C">C</option>
+                </select>
+              </div>
               <button
                 onClick={() => setShowWorksheetPortal(true)} // Open worksheets flow
                 className="bg-white dark:bg-slate-800 hover:bg-zinc-50 dark:hover:bg-zinc-700 border border-zinc-200 dark:border-zinc-700 text-zinc-700 dark:text-zinc-300 font-mono text-[10px] font-bold px-3 py-1.5 rounded-lg shadow-sm cursor-pointer hover:border-zinc-400 transition-colors"
@@ -2413,6 +2683,19 @@ export const TeacherDashboard: React.FC<DashboardProps> = ({ user, token }) => {
                         </a>
                       </div>
                     )
+                  },
+                  {
+                    header: 'Actions',
+                    accessor: (s) => (
+                      <button
+                        type="button"
+                        onClick={() => setProfileStudent(s)}
+                        className="bg-zinc-900 hover:bg-zinc-700 dark:bg-white dark:hover:bg-zinc-200 text-white dark:text-zinc-900 font-mono text-[10px] font-bold px-3 py-1.5 rounded-lg shadow-sm cursor-pointer transition-all active:scale-95"
+                        aria-label={`View profile of ${s.name}`}
+                      >
+                        View Profile
+                      </button>
+                    )
                   }
                 ];
                 return (
@@ -2455,6 +2738,12 @@ export const TeacherDashboard: React.FC<DashboardProps> = ({ user, token }) => {
       </div>
       )}
       <FLNLevelReferenceModal isOpen={showLevelRef} onClose={() => setShowLevelRef(false)} />
+      <StudentProfileModal
+        isOpen={profileStudent !== null}
+        onClose={() => setProfileStudent(null)}
+        student={profileStudent}
+        token={token}
+      />
     </div>
   );
 };

@@ -2093,6 +2093,9 @@ async function startServer() {
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }
+  app.get("/whoami-old", (req, res) => {
+  res.send("OLD BACKEND");
+});
 
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);
