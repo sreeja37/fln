@@ -2051,7 +2051,14 @@ export const TeacherDashboard: React.FC<DashboardProps> = ({ user, token }) => {
     if (!bulkJob || bulkJob.status !== 'running') return;
     const interval = setInterval(async () => {
       try {
-        const res = await fetch(`/api/diagnostic/bulk/${bulkJob.jobId}/progress`);
+        const res = await fetch(
+  `/api/diagnostic/bulk/${bulkJob.jobId}/progress`,
+  {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  }
+);
         if (res.ok) {
           const data = await res.json();
           setBulkJob(prev => prev ? { ...prev, completed: data.completed, status: data.status, pdfUrl: data.pdfUrl || prev.pdfUrl, downloadUrl: data.downloadUrl || prev.downloadUrl, error: data.error || '' } : prev);

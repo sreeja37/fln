@@ -9,6 +9,8 @@ import authRoutes from './routes/auth.routes';
 import teacherRoutes from './routes/teacher.routes';
 import classRoutes from './routes/class.routes';
 import studentRoutes from './routes/student.routes';
+import adminRoutes from './routes/admin.routes';
+import diagnosticRoutes from './routes/diagnostic.routes';
 
 const app = express();
 
@@ -28,6 +30,8 @@ app.use('/api/schools', schoolRoutes);
 app.use('/api/teachers', teacherRoutes);
 app.use('/api/classes', classRoutes);
 app.use('/api/students', studentRoutes);
+app.use('/api/admin', adminRoutes);
+app.use('/api/diagnostic', diagnosticRoutes);
 
 app.use(errorHandler);
 
