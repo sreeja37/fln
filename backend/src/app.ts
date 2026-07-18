@@ -11,6 +11,7 @@ import classRoutes from './routes/class.routes';
 import studentRoutes from './routes/student.routes';
 import adminRoutes from './routes/admin.routes';
 import diagnosticRoutes from './routes/diagnostic.routes';
+import worksheetRoutes from './routes/worksheet.routes';
 import path from "path";
 
 const app = express();
@@ -36,6 +37,7 @@ app.use('/api/classes', classRoutes);
 app.use('/api/students', studentRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/diagnostic', diagnosticRoutes);
+app.use('/api/worksheets', worksheetRoutes);
 
 app.use(errorHandler);
 
