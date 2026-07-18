@@ -290,6 +290,17 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
   const [expandedDist, setExpandedDist] = useState<string | null>(null);
   const [userRoleFilter, setUserRoleFilter] = useState('superadmin');
   const [userSearch, setUserSearch] = useState('');
+  // Performance panel scope (independent of the Student Profile scope so
+  // changing the filters on one does not disturb the other).
+  //   - perfScopeClassGroup / perfScopeSection drive the dropdowns.
+  //   - perfSelectedStudentId picks the focused student for the per-
+  //     student detail card; empty string = no individual focus, fall
+  //     back to whole-class aggregate.
+  // Initialized to empty strings; the auto-init effect below snaps them
+  // to the first available class+section once the roster arrives.
+  const [perfScopeClassGroup, setPerfScopeClassGroup] = useState('');
+  const [perfScopeSection, setPerfScopeSection] = useState('');
+  const [perfSelectedStudentId, setPerfSelectedStudentId] = useState('');
 
   const { data: students = [], isLoading: studentsLoading, isError: studentsError } = useStudents();
   // Phase 3: Edit Personal Details PATCH mutation. The mutation itself
@@ -325,9 +336,39 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
       // been set yet. Subsequent changes flow from the user via the
       // dropdowns in the Student Profile header.
       if (!scopeClassGroup) setScopeClassGroup(students[0].classGroup);
-      if (!scopeSection) setScopeSection(students[0].section);
+      if (!scopeSection) setScopeSection(students[0].section);}
+    }, [students, sel, scopeClassGroup, scopeSection]);
+
+  // Performance panel scope auto-init: snap to the first available
+  // class+section when the roster first arrives, and snap forward if
+  // the selected section no longer has students in that class. Mirror
+  // of the Student Profile auto-init above.
+  useEffect(() => {
+    if (!students.length) return;
+    const classes = Array.from(new Set(students.map((x) => x.classGroup))).sort();
+    const cls = classes.includes(perfScopeClassGroup) ? perfScopeClassGroup : classes[0];
+    const secs = Array.from(
+      new Set(students.filter((x) => x.classGroup === cls).map((x) => x.section))
+    ).sort();
+    const sec = secs.includes(perfScopeSection) ? perfScopeSection : secs[0];
+    if (perfScopeClassGroup !== cls) setPerfScopeClassGroup(cls);
+    if (perfScopeSection !== sec) setPerfScopeSection(sec);
+  }, [students, perfScopeClassGroup, perfScopeSection]);
+
+  // Performance panel: keep `perfSelectedStudentId` consistent with the
+  // active class+section. If the focused student is no longer in that
+  // scope, clear it so the UI falls back to the aggregate card.
+  useEffect(() => {
+    if (!students.length) return;
+    const inScope = students.filter(
+      (x) => x.classGroup === perfScopeClassGroup && x.section === perfScopeSection
+    );
+    if (!perfSelectedStudentId) return;
+    if (!inScope.some((x) => x.id === perfSelectedStudentId)) {
+      setPerfSelectedStudentId('');
     }
-  }, [students, sel, scopeClassGroup, scopeSection]);
+  }, [students, perfScopeClassGroup, perfScopeSection, perfSelectedStudentId]);
+
 
   // Phase 3: Edit Personal Details — derived helpers.
   //
@@ -1710,25 +1751,296 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
 
   if (panel === 'performance') {
     const isTeacher = currentUser.role === UserRole.TEACHER || currentUser.role === UserRole.VOLUNTEER;
-    const topStudents = [...students].sort((a, b) => b.currentLevel - a.currentLevel).slice(0, 5);
+
+    // Classes / sections derived from the live roster. The same set is
+    // computed once at component scope for the Student Profile panel;
+    // recomputing it here keeps the Performance panel self-contained.
+    const perfAvailableClasses = Array.from(new Set(students.map((x) => x.classGroup))).sort();
+    const perfAvailableSectionsForClass = Array.from(
+      new Set(students.filter((x) => x.classGroup === perfScopeClassGroup).map((x) => x.section))
+    ).sort();
+    const perfEffectiveClass = perfAvailableClasses.includes(perfScopeClassGroup)
+      ? perfScopeClassGroup
+      : perfAvailableClasses[0] || '';
+    const perfEffectiveSection = perfAvailableSectionsForClass.includes(perfScopeSection)
+      ? perfScopeSection
+      : perfAvailableSectionsForClass[0] || '';
+
+    // The students in the active class+section. Metrics and lists below
+    // all derive from this single source of truth.
+    const perfScopedStudents = students.filter(
+      (x) => x.classGroup === perfEffectiveClass && x.section === perfEffectiveSection
+    );
+
+    // The currently-focused student (if any) for the detail card.
+    const perfFocusedStudent = perfSelectedStudentId
+      ? perfScopedStudents.find((x) => x.id === perfSelectedStudentId) || null
+      : null;
+
+    // Class-level aggregates derived from the filtered roster.
+    const perfAvg = perfScopedStudents.length
+      ? Math.round(
+          perfScopedStudents.reduce((a, s) => a + s.currentLevel, 0) / perfScopedStudents.length
+        )
+      : 0;
+    const perfCertified = perfScopedStudents.filter((s) => s.currentLevel >= 5).length;
+    const perfPending = perfScopedStudents.filter((s) => s.levelHistory.length === 0).length;
+    const perfActive = perfScopedStudents.filter((s) => s.levelHistory.length > 0).length;
+
+    // Level-distribution histogram (L1..L5+), bucketing any level >= 5
+    // into the "L5+" bucket so the bar chart reads naturally.
+    const perfDistribution = [1, 2, 3, 4, 5].map((lv) => {
+      if (lv < 5) {
+        return { label: `L${lv}`, count: perfScopedStudents.filter((s) => s.currentLevel === lv).length };
+      }
+      return { label: 'L5+', count: perfScopedStudents.filter((s) => s.currentLevel >= 5).length };
+    });
+    const perfDistributionMax = perfDistribution.reduce((a, d) => Math.max(a, d.count), 0);
+
+    // Top performers within the active scope.
+    const perfTopStudents = [...perfScopedStudents]
+      .sort((a, b) => b.currentLevel - a.currentLevel)
+      .slice(0, 5);
+
     return (
       <div className="space-y-6">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <MetricCard title="Total Students" value={students.length} subtext="Active roster" icon={Users} />
-          <MetricCard title="Avg Level" value={`L${Math.round(students.reduce((a, s) => a + s.currentLevel, 0) / students.length)}`} subtext="Class average" icon={BarChart3} />
-          <MetricCard title="Certified" value={`${students.filter(s => s.currentLevel >= 5).length}`} subtext="Level 5+ achieved" icon={Award} />
-          <MetricCard title="Pending Diagnostic" value={students.filter(s => s.levelHistory.length === 0).length} subtext="Need placement" icon={ShieldAlert} />
+        {/* Filter row — mirrors the Student Profile scope selectors so
+            the UX is consistent across both panels. */}
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-4 shadow-sm">
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="flex flex-col gap-1">
+              <label className="text-[10px] font-mono font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Class</label>
+              <select
+                value={perfEffectiveClass}
+                onChange={(e) => {
+                  // When class changes, snap section to the first one
+                  // that actually has students in the newly-chosen class.
+                  const cls = e.target.value;
+                  const secs = Array.from(
+                    new Set(students.filter((x) => x.classGroup === cls).map((x) => x.section))
+                  ).sort();
+                  setPerfScopeClassGroup(cls);
+                  setPerfScopeSection(secs[0] || '');
+                  setPerfSelectedStudentId('');
+                }}
+                className="text-xs font-mono font-bold uppercase bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-2 text-slate-700 dark:text-slate-200 focus:border-indigo-400 outline-none"
+                aria-label="Filter performance by class"
+              >
+                {perfAvailableClasses.map((c) => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </select>
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-[10px] font-mono font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Section</label>
+              <select
+                value={perfEffectiveSection}
+                onChange={(e) => {
+                  setPerfScopeSection(e.target.value);
+                  setPerfSelectedStudentId('');
+                }}
+                className="text-xs font-mono font-bold uppercase bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-2 text-slate-700 dark:text-slate-200 focus:border-indigo-400 outline-none"
+                aria-label="Filter performance by section"
+              >
+                {perfAvailableSectionsForClass.map((sec) => (
+                  <option key={sec} value={sec}>{sec}</option>
+                ))}
+              </select>
+            </div>
+            <div className="flex flex-col gap-1 min-w-[14rem] flex-1">
+              <label className="text-[10px] font-mono font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Focus Student</label>
+              <select
+                value={perfSelectedStudentId}
+                onChange={(e) => setPerfSelectedStudentId(e.target.value)}
+                className="text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-2 text-slate-700 dark:text-slate-200 focus:border-indigo-400 outline-none"
+                aria-label="Focus on a specific student"
+              >
+                <option value="">— Aggregate view (whole class) —</option>
+                {perfScopedStudents.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name} ({s.id})
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
         </div>
-        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-6 shadow-sm">
-          <PageHeader title={isTeacher ? "Class Performance" : "School Performance"} desc="FLN level distribution and trends" />
-          <div className="space-y-3">
-            <h4 className="text-xs font-mono font-bold text-slate-500 dark:text-slate-400 uppercase">Top Performing Students</h4>
-            <div className="space-y-2">{topStudents.map(s => (
-              <div key={s.id} className="flex justify-between items-center p-3 border border-slate-100 dark:border-slate-700 rounded-lg">
-                <div className="flex items-center gap-3"><span className="text-sm font-semibold">{s.name}</span><span className="text-xs text-slate-400 dark:text-slate-500">{s.classGroup}</span></div>
-                <div className="flex items-center gap-4"><div className="w-32 h-2 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden"><div className="h-full bg-emerald-500 rounded-full" style={{ width: `${(s.currentLevel / 59) * 100}%` }} /></div><span className="font-mono font-bold text-sm">L{s.currentLevel}</span></div>
+
+        {/* Metric cards — react to the active filter. */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <MetricCard
+            title="Students in Scope"
+            value={perfScopedStudents.length}
+            subtext={`${perfEffectiveClass} - ${perfEffectiveSection}`}
+            icon={Users}
+          />
+          <MetricCard
+            title="Avg Level"
+            value={perfScopedStudents.length ? `L${perfAvg}` : '—'}
+            subtext="Class average"
+            icon={BarChart3}
+          />
+          <MetricCard
+            title="Certified"
+            value={perfCertified}
+            subtext="Level 5+ achieved"
+            icon={Award}
+          />
+          <MetricCard
+            title="Pending Diagnostic"
+            value={perfPending}
+            subtext={`${perfActive} active, ${perfPending} awaiting placement`}
+            icon={ShieldAlert}
+          />
+        </div>
+
+        {/* Per-student detail card when a specific student is focused. */}
+        {perfFocusedStudent && (
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-6 shadow-sm space-y-4">
+            <div className="flex items-start justify-between gap-4 flex-wrap">
+              <div className="min-w-0">
+                <div className="flex items-center gap-3 flex-wrap">
+                  <h3 className="text-base font-bold text-slate-900 dark:text-white truncate">{perfFocusedStudent.name}</h3>
+                  <span className="text-xs font-mono font-bold px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700">ID: {perfFocusedStudent.id}</span>
+                  <span className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded border ${
+                    perfFocusedStudent.levelHistory.length > 0
+                      ? 'text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950 border-emerald-200 dark:border-emerald-800'
+                      : 'text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950 border-amber-200 dark:border-amber-800'
+                  }`}>
+                    {perfFocusedStudent.levelHistory.length > 0 ? 'Placed' : 'Pending Diagnostic'}
+                  </span>
+                </div>
+                <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">
+                  {perfFocusedStudent.classGroup} - {perfFocusedStudent.section} · Target L{perfFocusedStudent.targetLevel} · Streak {perfFocusedStudent.streak}
+                </p>
               </div>
-            ))}</div>
+              <div className="text-right shrink-0">
+                <div className="text-[10px] font-mono text-slate-400 dark:text-slate-500 uppercase tracking-wider">Current Level</div>
+                <div className="text-2xl font-bold text-slate-900 dark:text-white">
+                  L{perfFocusedStudent.currentLevel}
+                  <span className="text-base font-mono text-slate-500 dark:text-slate-400">.{perfFocusedStudent.currentSubLevel ?? 0}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Progress bar to target. */}
+            <div>
+              <div className="flex justify-between text-[10px] font-mono uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
+                <span>L{perfFocusedStudent.currentLevel}</span>
+                <span>Target L{perfFocusedStudent.targetLevel}</span>
+              </div>
+              <div className="w-full h-2 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-emerald-500 rounded-full transition-all"
+                  style={{
+                    width: `${Math.min(100, Math.round((perfFocusedStudent.currentLevel / Math.max(1, perfFocusedStudent.targetLevel)) * 100))}%`,
+                  }}
+                />
+              </div>
+            </div>
+
+            {/* Level history (last 8 events, newest first). */}
+            <div>
+              <h4 className="text-[10px] font-mono font-bold text-slate-500 dark:text-slate-400 uppercase mb-2 tracking-wider">Recent Level Events</h4>
+              {perfFocusedStudent.levelHistory.length === 0 ? (
+                <p className="text-xs text-slate-400 dark:text-slate-500 italic">No level events recorded yet. Run a diagnostic to place this student.</p>
+              ) : (
+                <ul className="space-y-1.5 text-xs">
+                  {[...perfFocusedStudent.levelHistory]
+                    .slice(-8)
+                    .reverse()
+                    .map((ev, i) => (
+                      <li
+                        key={i}
+                        className="flex items-center gap-3 p-2 border border-slate-100 dark:border-slate-700 rounded-lg"
+                      >
+                        <span className="font-mono font-bold text-slate-700 dark:text-slate-200 shrink-0 w-12">L{ev.level}{ev.subLevel != null ? `.${ev.subLevel}` : ''}</span>
+                        <span className="flex-1 text-slate-600 dark:text-slate-300">{ev.reason}</span>
+                        <span className="font-mono text-slate-400 dark:text-slate-500 shrink-0">{ev.date ? new Date(ev.date).toLocaleDateString() : ''}</span>
+                      </li>
+                    ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Class-level view (rendered alongside the per-student card when
+            one is focused, so teachers can compare). */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-6 shadow-sm">
+            <PageHeader
+              title={`Level Distribution — ${perfEffectiveClass} - ${perfEffectiveSection}`}
+              desc="How many students in this scope are at each FLN level"
+            />
+            {perfScopedStudents.length === 0 ? (
+              <p className="text-xs text-slate-400 dark:text-slate-500 italic mt-4 text-center py-6">
+                No students in this scope yet.
+              </p>
+            ) : (
+              <div className="space-y-2 mt-4">
+                {perfDistribution.map((d) => {
+                  const pct = perfDistributionMax > 0 ? Math.round((d.count / perfDistributionMax) * 100) : 0;
+                  return (
+                    <div key={d.label} className="flex items-center gap-3">
+                      <span className="text-xs font-mono font-bold text-slate-700 dark:text-slate-200 w-12 shrink-0">{d.label}</span>
+                      <div className="flex-1 h-6 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-indigo-500 dark:bg-indigo-400 rounded-full transition-all flex items-center justify-end pr-2"
+                          style={{ width: `${Math.max(pct, d.count > 0 ? 6 : 0)}%` }}
+                        >
+                          {d.count > 0 && (
+                            <span className="text-[10px] font-mono font-bold text-white">{d.count}</span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-6 shadow-sm">
+            <PageHeader
+              title="Top Performers"
+              desc={`Highest current level in ${perfEffectiveClass} - ${perfEffectiveSection}`}
+            />
+            {perfTopStudents.length === 0 ? (
+              <p className="text-xs text-slate-400 dark:text-slate-500 italic mt-4 text-center py-6">
+                No students in this scope yet.
+              </p>
+            ) : (
+              <div className="space-y-2 mt-4">
+                {perfTopStudents.map((s) => (
+                  <button
+                    key={s.id}
+                    type="button"
+                    onClick={() => setPerfSelectedStudentId(s.id)}
+                    className={`w-full flex justify-between items-center p-3 border rounded-lg text-left transition-all ${
+                      perfSelectedStudentId === s.id
+                        ? 'border-indigo-400 dark:border-indigo-500 bg-indigo-50 dark:bg-indigo-950'
+                        : 'border-slate-100 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800'
+                    }`}
+                    aria-label={`Focus on ${s.name}`}
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <span className="text-sm font-semibold text-slate-900 dark:text-white truncate">{s.name}</span>
+                      <span className="text-xs text-slate-400 dark:text-slate-500 shrink-0">{s.id}</span>
+                    </div>
+                    <div className="flex items-center gap-4 shrink-0">
+                      <div className="w-32 h-2 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-emerald-500 rounded-full"
+                          style={{ width: `${(s.currentLevel / 59) * 100}%` }}
+                        />
+                      </div>
+                      <span className="font-mono font-bold text-sm text-slate-900 dark:text-white">L{s.currentLevel}</span>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       </div>
