@@ -12,6 +12,7 @@ import studentRoutes from './routes/student.routes';
 import adminRoutes from './routes/admin.routes';
 import diagnosticRoutes from './routes/diagnostic.routes';
 import worksheetRoutes from './routes/worksheet.routes';
+import evaluationReportRoutes from './routes/evaluation-report.routes';
 import path from "path";
 
 const app = express();
@@ -38,6 +39,7 @@ app.use('/api/students', studentRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/diagnostic', diagnosticRoutes);
 app.use('/api/worksheets', worksheetRoutes);
+app.use('/api/evaluation-reports', evaluationReportRoutes);
 
 app.use(errorHandler);
 

@@ -25,4 +25,12 @@ router.get('/:id', controller.getById);
 router.post('/', controller.create);
 router.patch('/:id', controller.update);
 
+// Onboarding Diagnostic surface (ports of legacy src/index.ts:497 / :591).
+// Both endpoints are gated by the slice-level `authenticate` above and
+// live under the same `/api/students/:id/...` mount; no new mount in
+// `app.ts` is needed and no new routes/controller/service/repository
+// files were introduced.
+router.post('/:id/diagnostic', controller.generateDiagnostic);
+router.post('/:id/diagnostic/submit', controller.submitDiagnostic);
+
 export default router;

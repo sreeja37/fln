@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import httpStatus from 'http-status';
 import { StudentService } from '../services/student.service';
+import { AppError } from '../middlewares/errorHandler';
 
 /**
  * Controller for the Student module.
@@ -182,4 +183,109 @@ export class StudentController {
       next(error);
     }
   }
+
+  // ====================================================================
+  //  Onboarding Diagnostic surface
+  //  (extensions to the Student module — no new routes/controllers/services
+  //   were created; the existing four files are the only ones touched.)
+  // ====================================================================
+  //
+  // These two handlers preserve the legacy
+  // `src/index.ts:497-781` contract:
+  //   - 200 + `{ student, diagnosticPaper }` on generate
+  //   - 200 + `{ student, evaluation, report }` on submit
+  //   - 404 + `{ error: 'Student not found.' }` on missing student
+  //   - 401 handled by the slice-level `router.use(authenticate)`
+  //
+  // We deliberately do NOT delegate to the global `errorHandler` here
+  // because it returns an envelope shape
+  // (`{ success, message, data }`) that the frontend's
+  // `DiagnosticWorkflow.tsx:39` does not read — it expects
+  // `data.error`. Translating `AppError` to that legacy envelope
+  // locally keeps the wire contract identical to the legacy
+  // implementation.
+
+  /**
+   * POST /api/students/:id/diagnostic
+   * Port of legacy `index.ts:497-556`. No body — the diagnostic paper
+   * is derived entirely from the resolved student record.
+   *
+   * `req.user` is guaranteed to be populated by the slice-level
+   * `router.use(authenticate)` middleware in `student.routes.ts`.
+   */
+  async generateDiagnostic(req: Request, res: Response, _next: NextFunction): Promise<void> {
+    try {
+      const studentId = (req.params.id || '').toString();
+      const actingUser = {
+        userId: req.user?.userId || '',
+        email: req.user?.email || '',
+        role: req.user?.role || '',
+        schoolId: req.user?.schoolId || '',
+      };
+
+      const result = await studentService.generateDiagnostic(
+        studentId,
+        actingUser
+      );
+      res.status(httpStatus.OK).json(result);
+    } catch (error) {
+      sendLegacyErrorEnvelope(res, error);
+    }
+  }
+
+  /**
+   * POST /api/students/:id/diagnostic/submit
+   * Port of legacy `index.ts:591-781`. Body shape:
+   *   { questions: Question[]; answers: Record<string,string> }
+   */
+  async submitDiagnostic(req: Request, res: Response, _next: NextFunction): Promise<void> {
+    try {
+      const studentId = (req.params.id || '').toString();
+      const body = (req.body && typeof req.body === 'object' ? req.body : {}) as {
+        questions?: Array<{ question_id: string; answer: string; source_level?: number; [k: string]: unknown }>;
+        answers?: Record<string, string>;
+      };
+      const actingUser = {
+        userId: req.user?.userId || '',
+        email: req.user?.email || '',
+        role: req.user?.role || '',
+        schoolId: req.user?.schoolId || '',
+      };
+
+      const questions = Array.isArray(body.questions) ? body.questions : [];
+      const answers =
+        body.answers && typeof body.answers === 'object'
+          ? body.answers
+          : ({} as Record<string, string>);
+
+      const result = await studentService.submitDiagnostic(
+        studentId,
+        { questions: questions as any, answers },
+        actingUser
+      );
+      res.status(httpStatus.OK).json(result);
+    } catch (error) {
+      sendLegacyErrorEnvelope(res, error);
+    }
+  }
+}
+
+/**
+ * Emit the legacy `{ error: '…' }` wire envelope directly from the
+ * controller, bypassing the global `errorHandler` (which uses a
+ * different envelope shape). Mirrors the legacy
+ * `res.status(404).json({ error: 'Student not found.' })` calls in
+ * `index.ts:506` / `index.ts:601`. Keeps the diagnostic frontend
+ * callers' `data.error` reads working unchanged.
+ */
+function sendLegacyErrorEnvelope(res: Response, err: unknown): void {
+  if (err instanceof AppError) {
+    res.status(err.statusCode).json({ error: err.message });
+    return;
+  }
+  // eslint-disable-next-line no-console
+  console.error('Unhandled diagnostic error:', err);
+  res
+    .status(httpStatus.INTERNAL_SERVER_ERROR)
+    .json({ error: 'Internal server error' });
 }

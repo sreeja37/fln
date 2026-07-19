@@ -1,0 +1,106 @@
+{
+  "student_id": "s_AP_GNT_GNT_01_01_C2_01",
+  "student_name": "Sara Singh",
+  "enrolled_class": 2,
+  "test_date": "2026-07-19",
+  "phrase": "phrase_1",
+  "exam_id": "C2_WORKSHEET_PHRASE_1",
+  "answers": {
+    "Q1": {
+      "answer": "5",
+      "confidence": 0.95
+    },
+    "Q2": {
+      "answer": "8",
+      "confidence": 0.95
+    },
+    "Q3": {
+      "answer": "13",
+      "confidence": 0.95
+    },
+    "Q4": {
+      "answer": "6",
+      "confidence": 0.95
+    },
+    "Q5": {
+      "answer": ">",
+      "confidence": 0.95
+    },
+    "Q6": {
+      "answer": "<",
+      "confidence": 0.95
+    },
+    "Q7": {
+      "answer": "2,4,3,1",
+      "confidence": 0.95
+    },
+    "Q8": {
+      "answer": "1,4,3,2",
+      "confidence": 0.95
+    },
+    "Q9": {
+      "answer": "13",
+      "confidence": 0.95
+    },
+    "Q10": {
+      "answer": "12",
+      "confidence": 0.95
+    },
+    "Q11": {
+      "answer": "3",
+      "confidence": 0.95
+    },
+    "Q12": {
+      "answer": "4",
+      "confidence": 0.95
+    },
+    "Q13": {
+      "answer": "52",
+      "confidence": 0.95
+    },
+    "Q14": {
+      "answer": "31",
+      "confidence": 0.95
+    },
+    "Q15": {
+      "answer": "16",
+      "confidence": 0.95
+    },
+    "Q16": {
+      "answer": "circle",
+      "confidence": 0.95
+    },
+    "Q17": {
+      "answer": "square",
+      "confidence": 0.95
+    },
+    "Q18": {
+      "answer": "star",
+      "confidence": 0.95
+    },
+    "Q19": {
+      "answer": "triangle",
+      "confidence": 0.95
+    },
+    "Q20": {
+      "answer": "circle",
+      "confidence": 0.95
+    },
+    "Q21": {
+      "answer": "bicycle",
+      "confidence": 0.95
+    },
+    "Q22": {
+      "answer": "rose",
+      "confidence": 0.95
+    },
+    "Q23": {
+      "answer": "left",
+      "confidence": 0.95
+    },
+    "Q24": {
+      "answer": "right",
+      "confidence": 0.95
+    }
+  }
+}

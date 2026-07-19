@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useStudents, useUpdateStudent } from '../hooks/useStudents';
+import { useEvaluationReports } from '../hooks/useEvaluationReports';
 import { User, UserRole, Student, ClassGroup, School, EvaluationReport, LogEntry, Ticket } from '../types';
 import { Users, ShieldAlert, BookOpen, UserCheck, Calendar, ArrowRight, CheckCircle2, XCircle, SlidersHorizontal, Layers, Award, MapPin, School as SchoolIcon, BarChart3, FileText, ClipboardList, Building2, GraduationCap, BookMarked, Globe, Settings, Database, RefreshCw, Search, ChevronDown, Edit3, Save, X, Loader2, AlertCircle } from 'lucide-react';
 import { Table, Column } from './Table';
@@ -10,6 +11,11 @@ interface PanelViewsProps {
   activePanel: string;
   currentUser: User;
   token: string;
+  // Wired in from App.tsx so panels below can navigate (e.g. Student
+  // List → Student Profile via the View Profile button). Optional to
+  // keep the prop backwards-compatible with any test fixtures that
+  // render <PanelViews /> without a navigator.
+  setActivePanel?: (panel: string) => void;
 }
 
 const REPORTS_MOCK: EvaluationReport[] = [
@@ -164,7 +170,7 @@ function PageHeader({ title, desc, icon }: { title: string; desc: string; icon?:
   );
 }
 
-function EmptyStudents({ students }: { students: Student[] }) {
+function EmptyStudents({ students, onViewProfile }: { students: Student[]; onViewProfile?: (studentId: string) => void }) {
   // Roster-scoped Class + Section filters. Decoupled from any other panel's
   // state in PanelViews — keeps the Student List page self-contained.
   const [rosterClassName, setRosterClassName] = useState<string>('all');
@@ -197,8 +203,15 @@ function EmptyStudents({ students }: { students: Student[] }) {
       accessor: (s) => (
         <button
           type="button"
-          onClick={() => { /* navigation wired in the next phase */ }}
-          className="bg-slate-900 hover:bg-slate-700 dark:bg-white dark:hover:bg-slate-200 text-white dark:text-slate-900 font-mono text-[10px] font-bold px-3 py-1.5 rounded-lg shadow-sm cursor-pointer transition-all active:scale-95"
+          onClick={() => {
+            // Fire the parent-supplied navigation callback if present.
+            // Parent is expected to (a) remember the targeted student via
+            // `setSel(s.id)` and (b) call `setActivePanel('student_profile')`
+            // so the Student Profile panel renders for this student.
+            onViewProfile?.(s.id);
+          }}
+          disabled={!onViewProfile}
+          className={`bg-slate-900 hover:bg-slate-700 dark:bg-white dark:hover:bg-slate-200 text-white dark:text-slate-900 font-mono text-[10px] font-bold px-3 py-1.5 rounded-lg shadow-sm transition-all active:scale-95 ${onViewProfile ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`}
           aria-label={`View profile of ${s.name}`}
         >
           View Profile
@@ -248,7 +261,7 @@ function EmptyStudents({ students }: { students: Student[] }) {
   );
 }
 
-export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser, token }) => {
+export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser, token, setActivePanel }) => {
   const [search, setSearch] = useState('');
   const [stateFilter, setStateFilter] = useState('all');
   const [distFilter, setDistFilter] = useState('all');
@@ -301,8 +314,22 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
   const [perfScopeClassGroup, setPerfScopeClassGroup] = useState('');
   const [perfScopeSection, setPerfScopeSection] = useState('');
   const [perfSelectedStudentId, setPerfSelectedStudentId] = useState('');
+  // Reports panel scope (independent of Profile + Performance so the
+  // three panels can show different filters without disturbing each
+  // other). Same naming pattern as perf-* for consistency.
+  //   - reportScopeClassGroup / reportScopeSection drive the dropdowns.
+  //   - reportSelectedStudentId picks the focused student for the
+  //     per-student detail card; empty string = whole-class aggregate.
+  const [reportScopeClassGroup, setReportScopeClassGroup] = useState('');
+  const [reportScopeSection, setReportScopeSection] = useState('');
+  const [reportSelectedStudentId, setReportSelectedStudentId] = useState('');
 
   const { data: students = [], isLoading: studentsLoading, isError: studentsError } = useStudents();
+  // Live EvaluationReports feed for the Reports panel. Fetched with no
+  // filter params (server-side role scope is the only narrowing). Client
+  // applies the class/section/student narrowing using the same array, so
+  // toggling dropdowns does not re-issue the request.
+  const { data: evaluationReports = [], isLoading: reportsLoading, isError: reportsError } = useEvaluationReports();
   // Phase 3: Edit Personal Details PATCH mutation. The mutation itself
   // invalidates the ['students'] cache (see useStudents.ts), so the
   // freshly-updated student re-renders in Dashboard / Student List /
@@ -368,6 +395,38 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
       setPerfSelectedStudentId('');
     }
   }, [students, perfScopeClassGroup, perfScopeSection, perfSelectedStudentId]);
+
+  // Reports panel scope auto-init: snap to the first available
+  // class+section when the roster first arrives, and snap forward if
+  // the selected section no longer has students in that class. Mirror
+  // of the Performance auto-init above so the three panels follow the
+  // same initialization contract.
+  useEffect(() => {
+    if (!students.length) return;
+    const classes = Array.from(new Set(students.map((x) => x.classGroup))).sort();
+    const cls = classes.includes(reportScopeClassGroup) ? reportScopeClassGroup : classes[0];
+    const secs = Array.from(
+      new Set(students.filter((x) => x.classGroup === cls).map((x) => x.section))
+    ).sort();
+    const sec = secs.includes(reportScopeSection) ? reportScopeSection : secs[0];
+    if (reportScopeClassGroup !== cls) setReportScopeClassGroup(cls);
+    if (reportScopeSection !== sec) setReportScopeSection(sec);
+  }, [students, reportScopeClassGroup, reportScopeSection]);
+
+  // Reports panel: keep `reportSelectedStudentId` consistent with the
+  // active class+section. If the focused student is no longer in that
+  // scope (or the roster dropped them), clear it so the UI falls back
+  // to the whole-class view.
+  useEffect(() => {
+    if (!students.length) return;
+    const inScope = students.filter(
+      (x) => x.classGroup === reportScopeClassGroup && x.section === reportScopeSection
+    );
+    if (!reportSelectedStudentId) return;
+    if (!inScope.some((x) => x.id === reportSelectedStudentId)) {
+      setReportSelectedStudentId('');
+    }
+  }, [students, reportScopeClassGroup, reportScopeSection, reportSelectedStudentId]);
 
 
   // Phase 3: Edit Personal Details — derived helpers.
@@ -643,7 +702,7 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
       return;
     }
 
-    const conceptBadges = Object.entries(r.conceptMastery)
+    const conceptBadges = Object.entries(r.conceptMastery ?? {})
       .map(([t, m]) => `<span class="badge ${m === 'Strong' ? 'badge-pass' : 'badge-fail'}">${t}: ${m}</span>`)
       .join(' ');
 
@@ -771,7 +830,17 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
     return (
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-6 shadow-sm space-y-4">
         <PageHeader title="Student Roster" desc="Complete list of registered students across your classes" icon={<Users className="h-5 w-5" />} />
-        <EmptyStudents students={students} />
+        <EmptyStudents
+          students={students}
+          onViewProfile={(studentId) => {
+            // 1. Tell Student Profile which student to render. The
+            //    panel reads from the top-level `sel` state (line 856).
+            setSel(studentId);
+            // 2. Switch the active panel. setActivePanel is optional so
+            //    PanelViews can still be rendered in tests.
+            setActivePanel?.('student_profile');
+          }}
+        />
       </div>
     );
   }
@@ -871,11 +940,14 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
     const classAvg = Math.round(classStudents.reduce((a, st) => a + st.currentLevel, 0) / Math.max(1, classStudents.length));
     const avgScore = reports.length > 0 ? Math.round(reports.reduce((a, r) => a + (r.score / r.totalQuestions) * 100, 0) / reports.length) : 0;
     const allSkills = new Map<string, { mastery: string; date: string }[]>();
-    reports.forEach(r => Object.entries(r.conceptMastery).forEach(([topic, mastery]) => {
+    reports.forEach(r =>
+  Object.entries(r.conceptMastery ?? {}).forEach(([topic, mastery]) => {
       if (!allSkills.has(topic)) allSkills.set(topic, []);
       allSkills.get(topic)!.push({ mastery, date: r.timestamp });
     }));
-    const latestSkills = reports.length > 0 ? Object.entries(reports[0].conceptMastery) : [];
+    const latestSkills = reports.length > 0
+  ? Object.entries(reports[0].conceptMastery ?? {})
+  : [];
     const weakAreas = latestSkills.filter(([_, m]) => m !== 'Strong').map(([t]) => t);
     const recentActivity = [
       ...reports.map(r => ({ type: 'assessment' as const, label: `${r.score}/${r.totalQuestions} on ${r.worksheetId}`, date: r.timestamp, detail: `Score ${Math.round(r.score / r.totalQuestions * 100)}%` })),
@@ -1219,7 +1291,7 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
                         </div>
                       </div>
                       <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">{r.narrative}</p>
-                      <div className="flex flex-wrap gap-1.5">{Object.entries(r.conceptMastery).map(([t, m]) => (
+                      <div className="flex flex-wrap gap-1.5">{Object.entries(r.conceptMastery ?? {}).map(([t, m]) => (
                         <span key={t} className={`text-[9px] font-mono font-bold px-1.5 py-0.5 rounded ${m === 'Strong' ? 'bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800' : m === 'Satisfactory' ? 'bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800' : 'bg-red-50 dark:bg-red-950 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-800'}`}>{t}: {m}</span>
                       ))}</div>
                       
@@ -2049,15 +2121,87 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
 
   if (panel === 'reports') {
     const isStateAdmin = currentUser.role === UserRole.ADMIN;
+
+    // -------------------------------------------------------------------
+    // Reports panel — shared derived data (used by both the state-admin
+    // and the default branch below).
+    //
+    // The class/section/student dropdowns follow the same architecture
+    // as the Performance panel (see `perfAvailableClasses` and friends
+    // a few hundred lines above). The auto-init useEffects higher up
+    // keep `reportScopeClassGroup`, `reportScopeSection`, and
+    // `reportSelectedStudentId` valid against the live student roster.
+    // -------------------------------------------------------------------
+    const reportAvailableClasses = Array.from(new Set(students.map((x) => x.classGroup))).sort();
+    const reportAvailableSectionsForClass = Array.from(
+      new Set(students.filter((x) => x.classGroup === reportScopeClassGroup).map((x) => x.section))
+    ).sort();
+    const reportEffectiveClass = reportAvailableClasses.includes(reportScopeClassGroup)
+      ? reportScopeClassGroup
+      : reportAvailableClasses[0] || '';
+    const reportEffectiveSection = reportAvailableSectionsForClass.includes(reportScopeSection)
+      ? reportScopeSection
+      : reportAvailableSectionsForClass[0] || '';
+
+    // Roster in the active class+section. Drives the Student dropdown
+    // and the report filtering below.
+    const reportScopedStudents = students.filter(
+      (x) => x.classGroup === reportEffectiveClass && x.section === reportEffectiveSection
+    );
+
+    // Selected student (if any) for the per-student detail filtering.
+    const reportFocusedStudent = reportSelectedStudentId
+      ? reportScopedStudents.find((x) => x.id === reportSelectedStudentId) || null
+      : null;
+
+    // Student-id allowlist for the active scope. When a specific
+    // student is picked we narrow to their reports; otherwise we show
+    // every report belonging to a student in the active class+section.
+    const scopedStudentIds = new Set(reportScopedStudents.map((s) => s.id));
+    const visibleReports = evaluationReports
+      .filter((r) => scopedStudentIds.has(r.studentId))
+      .filter((r) => (reportFocusedStudent ? r.studentId === reportFocusedStudent.id : true))
+      .slice()
+      .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+
+    // Summary aggregates — derived from the filtered list above.
+    const reportTotalCount = visibleReports.length;
+    const reportAvgScorePct = reportTotalCount > 0
+      ? Math.round(
+          visibleReports.reduce((a, r) => a + (r.score / Math.max(1, r.totalQuestions)) * 100, 0) /
+            reportTotalCount
+        )
+      : 0;
+    const reportStrongConcepts = visibleReports.reduce(
+  (a, r) =>
+    a +
+    Object.values(r.conceptMastery ?? {}).filter(
+      (v) => v === "Strong"
+    ).length,
+  0
+);
+
     if (isStateAdmin) {
       const userState = currentUser.stateCode || 'PB';
       const stateSchools = schools.filter(s => s.stateCode === userState);
       const stateDistricts = [...new Set(stateSchools.map(s => s.districtCode))];
+      // State-admin summary: scope to the state-administrator's state.
+      const stateSchoolIds = new Set(stateSchools.map((s) => s.id));
+      const stateStudentIds = new Set(
+        students.filter((st) => stateSchoolIds.has(st.schoolId)).map((st) => st.id)
+      );
+      const stateReports = evaluationReports.filter((r) => stateStudentIds.has(r.studentId));
+      const stateAvgScorePct = stateReports.length > 0
+        ? Math.round(
+            stateReports.reduce((a, r) => a + (r.score / Math.max(1, r.totalQuestions)) * 100, 0) /
+              stateReports.length
+          )
+        : 0;
       return (
         <div className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <MetricCard title="Total Reports" value={REPORTS_MOCK.length} subtext="All evaluations" icon={FileText} />
-            <MetricCard title="Avg Score" value={`${Math.round(REPORTS_MOCK.reduce((a, r) => a + (r.score / r.totalQuestions) * 100, 0) / REPORTS_MOCK.length)}%`} subtext="Across reports" icon={BarChart3} />
+            <MetricCard title="Total Reports" value={stateReports.length} subtext="All evaluations" icon={FileText} />
+            <MetricCard title="Avg Score" value={stateReports.length > 0 ? `${stateAvgScorePct}%` : '—'} subtext="Across reports" icon={BarChart3} />
             <MetricCard title="Schools" value={stateSchools.length} subtext={`In ${userState}`} icon={SchoolIcon} />
             <MetricCard title="Districts" value={stateDistricts.length} subtext="Active jurisdictions" icon={MapPin} />
           </div>
@@ -2078,8 +2222,9 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
                     <div className="ml-6 mt-2 space-y-4 pl-4 border-l-2 border-indigo-200 dark:border-indigo-800">
                       {distSchools.map(sch => {
                         const schStudents = students.filter(st => st.schoolId === sch.id);
-                        const schReports = REPORTS_MOCK.filter(r => schStudents.some(st => st.id === r.studentId));
-                        const avgScore = schReports.length > 0 ? Math.round(schReports.reduce((a, r) => a + (r.score / r.totalQuestions) * 100, 0) / schReports.length) : 0;
+                        const schStudentIds = new Set(schStudents.map((st) => st.id));
+                        const schReports = stateReports.filter((r) => schStudentIds.has(r.studentId));
+                        const avgScore = schReports.length > 0 ? Math.round(schReports.reduce((a, r) => a + (r.score / Math.max(1, r.totalQuestions)) * 100, 0) / schReports.length) : 0;
                         return (
                           <div key={sch.id} className="border border-slate-200 dark:border-slate-700 rounded-xl p-4">
                             <div className="flex justify-between items-center mb-3"><h4 className="font-bold text-slate-900 dark:text-white text-sm">{sch.name}</h4><span className="text-xs text-slate-400 dark:text-slate-500">{sch.blockCode} · {sch.strength}</span></div>
@@ -2096,7 +2241,7 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
                                   <div key={r.id} className="border border-slate-100 dark:border-slate-700 rounded-lg p-3 text-sm">
                                     <div className="flex justify-between items-center"><span className="font-semibold">{student?.name || 'N/A'}</span><span className={`text-xs font-mono font-bold px-2 py-0.5 rounded ${scorePct >= 80 ? 'bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300' : scorePct >= 60 ? 'bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-300' : 'bg-red-50 dark:bg-red-950 text-red-700 dark:text-red-300'}`}>{r.score}/{r.totalQuestions} ({scorePct}%)</span></div>
                                     <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">{r.narrative}</p>
-                                    <div className="flex gap-1 mt-1.5">{Object.entries(r.conceptMastery).map(([t, m]) => (
+                                    <div className="flex gap-1 mt-1.5">{Object.entries(r.conceptMastery ?? {}).map(([t, m]) => (
                                       <span key={t} className={`text-[9px] font-mono font-bold px-1.5 py-0.5 rounded border ${m === 'Strong' ? 'bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800' : m === 'Satisfactory' ? 'bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800' : 'bg-red-50 dark:bg-red-950 text-red-700 dark:text-red-300 border-red-200 dark:border-red-800'}`}>{t}</span>
                                     ))}</div>
                                   </div>
@@ -2117,49 +2262,182 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
     }
     return (
       <div className="space-y-6">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <MetricCard title="Total Reports" value={REPORTS_MOCK.length} subtext="All evaluations" icon={FileText} />
-          <MetricCard title="Avg Score" value={`${Math.round(REPORTS_MOCK.reduce((a, r) => a + (r.score / r.totalQuestions) * 100, 0) / REPORTS_MOCK.length)}%`} subtext="Across reports" icon={BarChart3} />
-          <MetricCard title="Strong Concepts" value={REPORTS_MOCK.reduce((a, r) => a + Object.values(r.conceptMastery).filter(v => v === 'Strong').length, 0)} subtext="Mastered topics" icon={Award} />
+        {/* Filter row — Class -> Section -> Student. Mirrors the
+            Performance panel dropdown architecture so the two panels
+            feel like the same control surface. */}
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-4 shadow-sm">
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="flex flex-col gap-1">
+              <label className="text-[10px] font-mono font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Class</label>
+              <select
+                value={reportEffectiveClass}
+                onChange={(e) => {
+                  // When class changes, snap section to the first one
+                  // that actually has students in the newly-chosen class.
+                  const cls = e.target.value;
+                  const secs = Array.from(
+                    new Set(students.filter((x) => x.classGroup === cls).map((x) => x.section))
+                  ).sort();
+                  setReportScopeClassGroup(cls);
+                  setReportScopeSection(secs[0] || '');
+                  setReportSelectedStudentId('');
+                }}
+                disabled={reportAvailableClasses.length === 0}
+                className="text-xs font-mono font-bold uppercase bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-2 text-slate-700 dark:text-slate-200 focus:border-indigo-400 outline-none disabled:opacity-50"
+                aria-label="Filter reports by class"
+              >
+                {reportAvailableClasses.length === 0 && <option value="">—</option>}
+                {reportAvailableClasses.map((c) => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </select>
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-[10px] font-mono font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Section</label>
+              <select
+                value={reportEffectiveSection}
+                onChange={(e) => {
+                  setReportScopeSection(e.target.value);
+                  setReportSelectedStudentId('');
+                }}
+                disabled={reportAvailableSectionsForClass.length === 0}
+                className="text-xs font-mono font-bold uppercase bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-2 text-slate-700 dark:text-slate-200 focus:border-indigo-400 outline-none disabled:opacity-50"
+                aria-label="Filter reports by section"
+              >
+                {reportAvailableSectionsForClass.length === 0 && <option value="">—</option>}
+                {reportAvailableSectionsForClass.map((sec) => (
+                  <option key={sec} value={sec}>{sec}</option>
+                ))}
+              </select>
+            </div>
+            <div className="flex flex-col gap-1 min-w-[14rem] flex-1">
+              <label className="text-[10px] font-mono font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Student</label>
+              <select
+                value={reportSelectedStudentId}
+                onChange={(e) => setReportSelectedStudentId(e.target.value)}
+                disabled={reportScopedStudents.length === 0}
+                className="text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-2 text-slate-700 dark:text-slate-200 focus:border-indigo-400 outline-none disabled:opacity-50"
+                aria-label="Focus on a specific student"
+              >
+                <option value="">— All students in {reportEffectiveClass} - {reportEffectiveSection} —</option>
+                {reportScopedStudents.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name} ({s.id})
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
         </div>
+
+        {/* Summary cards — driven entirely by `visibleReports`. */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <MetricCard
+            title="Total Reports"
+            value={reportTotalCount}
+            subtext={
+              reportFocusedStudent
+                ? `For ${reportFocusedStudent.name}`
+                : `${reportEffectiveClass} - ${reportEffectiveSection}`
+            }
+            icon={FileText}
+          />
+          <MetricCard
+            title="Avg Score"
+            value={reportTotalCount > 0 ? `${reportAvgScorePct}%` : '—'}
+            subtext="Across filtered reports"
+            icon={BarChart3}
+          />
+          <MetricCard
+            title="Strong Concepts"
+            value={reportStrongConcepts}
+            subtext="Mastered topics"
+            icon={Award}
+          />
+        </div>
+
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-6 shadow-sm space-y-4">
-          <PageHeader title="Evaluation Reports" desc="Detailed assessment narratives and concept mastery breakdowns" />
-          {REPORTS_MOCK.map(r => {
+          <PageHeader
+            title="Evaluation Reports"
+            desc={
+              reportFocusedStudent
+                ? `Reports for ${reportFocusedStudent.name} (${reportEffectiveClass} - ${reportEffectiveSection})`
+                : `Detailed assessment narratives and concept mastery breakdowns — ${reportEffectiveClass} - ${reportEffectiveSection}`
+            }
+          />
+
+          {/* Loading + error states for the live data hook. */}
+          {reportsLoading && (
+            <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 py-4">
+              <Loader2 className="w-4 h-4 animate-spin" /> Loading evaluation reports...
+            </div>
+          )}
+          {reportsError && !reportsLoading && (
+            <div className="flex items-center gap-2 text-xs text-red-600 dark:text-red-300 bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 rounded-lg p-3">
+              <AlertCircle className="w-4 h-4 shrink-0" />
+              <span>Failed to load evaluation reports. Please retry.</span>
+            </div>
+          )}
+
+          {/* Empty state — only show when the live fetch is settled and
+              there are genuinely no reports for the active scope. */}
+          {!reportsLoading && !reportsError && visibleReports.length === 0 && (
+            <div className="border border-dashed border-slate-200 dark:border-slate-700 rounded-xl p-8 text-center bg-slate-50/50 dark:bg-slate-900/50">
+              <FileText className="w-8 h-8 text-slate-300 dark:text-slate-600 mx-auto mb-3" />
+              <h4 className="text-sm font-bold text-slate-700 dark:text-slate-200 mb-1">No evaluation reports yet</h4>
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                {reportFocusedStudent
+                  ? `${reportFocusedStudent.name} has no evaluation reports in the selected scope.`
+                  : `No evaluation reports found for ${reportEffectiveClass} - ${reportEffectiveSection}. Run a diagnostic scan to generate reports.`}
+              </p>
+            </div>
+          )}
+
+          {/* Live report list — replaces the old REPORTS_MOCK loop. The
+              expand-toggle / PDF download flow is preserved so users who
+              previously drilled into a single report can still do so. */}
+          {!reportsLoading && !reportsError && visibleReports.length > 0 && visibleReports.map(r => {
             const student = students.find(s => s.id === r.studentId);
             const isExpanded = expandedReportId === r.id;
-            
-            // Mock exam questions and student responses for side-by-side preview
-            const examResponses = student ? (
-              student.id === 's1' ? [
-                { question: 'Q1: Match objects one-to-one (One-to-One Correspondence)', studentAnswer: '3 (incorrect match count)', correctAnswer: 'Matched all 5 items', status: 'Incorrect' },
-                { question: 'Q2: Odd One Out - Select non-conforming object from [ball, book, table, pen]', studentAnswer: 'B (Book)', correctAnswer: 'table (furniture classification)', status: 'Incorrect' },
-                { question: 'Q3: Single Digit Addition - Solve: 5 + 4 = ?', studentAnswer: '9', correctAnswer: '9', status: 'Correct' },
-                { question: 'Q4: Single Digit Subtraction - Solve: 8 - 3 = ?', studentAnswer: '5', correctAnswer: '5', status: 'Correct' },
-                { question: 'Q5: Identify shape with 3 corners and 3 straight sides', studentAnswer: 'Triangle', correctAnswer: 'Triangle', status: 'Correct' }
-              ] : student.id === 's2' ? [
-                { question: 'Q1: Counting up to 10 - Count the apples: 🍎🍎🍎🍎', studentAnswer: '4', correctAnswer: '4', status: 'Correct' },
-                { question: 'Q2: Odd One Out - Select non-matching item: [square, circle, red-block, triangle]', studentAnswer: 'red-block', correctAnswer: 'red-block', status: 'Correct' },
-                { question: 'Q3: Pattern recognition - What comes next in sequence: 🔴🔵🔴🔵 ?', studentAnswer: '🔵', correctAnswer: '🔴', status: 'Incorrect' },
-                { question: 'Q4: Simple Addition - Solve: 3 + 2 = ?', studentAnswer: '5', correctAnswer: '5', status: 'Correct' }
-              ] : [
-                { question: 'Q1: Place Value Designation - What is the value of 7 in 372?', studentAnswer: '70 (7 tens)', correctAnswer: '70', status: 'Correct' },
-                { question: 'Q2: Single-Digit Multiplication - Solve: 6 × 3 = ?', studentAnswer: '18', correctAnswer: '18', status: 'Correct' },
-                { question: 'Q3: Double-Digit Subtraction with Borrowing - Solve: 42 - 17 = ?', studentAnswer: '25', correctAnswer: '25', status: 'Correct' },
-                { question: 'Q4: Simple Division - Solve: 15 ÷ 3 = ?', studentAnswer: '5', correctAnswer: '5', status: 'Correct' }
-              ]
-            ) : [];
-
+            // Per-student exam-response placeholders for the side-by-side
+            // grader view. Three pre-baked narratives keyed on the demo
+            // student ids used elsewhere in the app, with a sensible
+            // generic fallback for any other student that appears in
+            // the live evaluation report data.
+            const examResponses = student
+              ? (student.id === 's1'
+                ? [
+                    { question: 'Q1: Match objects one-to-one (One-to-One Correspondence)', studentAnswer: '3 (incorrect match count)', correctAnswer: 'Matched all 5 items', status: 'Incorrect' as const },
+                    { question: 'Q2: Odd One Out - Select non-conforming object from [ball, book, table, pen]', studentAnswer: 'B (Book)', correctAnswer: 'table (furniture classification)', status: 'Incorrect' as const },
+                    { question: 'Q3: Single Digit Addition - Solve: 5 + 4 = ?', studentAnswer: '9', correctAnswer: '9', status: 'Correct' as const },
+                    { question: 'Q4: Single Digit Subtraction - Solve: 8 - 3 = ?', studentAnswer: '5', correctAnswer: '5', status: 'Correct' as const },
+                    { question: 'Q5: Identify shape with 3 corners and 3 straight sides', studentAnswer: 'Triangle', correctAnswer: 'Triangle', status: 'Correct' as const }
+                  ]
+                : student.id === 's2'
+                  ? [
+                      { question: 'Q1: Counting up to 10 - Count the apples: 🍎🍎🍎🍎', studentAnswer: '4', correctAnswer: '4', status: 'Correct' as const },
+                      { question: 'Q2: Odd One Out - Select non-matching item: [square, circle, red-block, triangle]', studentAnswer: 'red-block', correctAnswer: 'red-block', status: 'Correct' as const },
+                      { question: 'Q3: Pattern recognition - What comes next in sequence: 🔴🔵🔴🔵 ?', studentAnswer: '🔵', correctAnswer: '🔴', status: 'Incorrect' as const },
+                      { question: 'Q4: Simple Addition - Solve: 3 + 2 = ?', studentAnswer: '5', correctAnswer: '5', status: 'Correct' as const }
+                    ]
+                  : [
+                      { question: 'Q1: Place Value Designation - What is the value of 7 in 372?', studentAnswer: '70 (7 tens)', correctAnswer: '70', status: 'Correct' as const },
+                      { question: 'Q2: Single-Digit Multiplication - Solve: 6 × 3 = ?', studentAnswer: '18', correctAnswer: '18', status: 'Correct' as const },
+                      { question: 'Q3: Double-Digit Subtraction with Borrowing - Solve: 42 - 17 = ?', studentAnswer: '25', correctAnswer: '25', status: 'Correct' as const },
+                      { question: 'Q4: Simple Division - Solve: 15 ÷ 3 = ?', studentAnswer: '5', correctAnswer: '5', status: 'Correct' as const }
+                    ])
+              : [];
             return (
               <div key={r.id} className="border border-slate-200 dark:border-slate-700 rounded-lg p-4 space-y-3 hover:border-slate-300 dark:hover:border-slate-600 transition-all">
                 <div className="flex justify-between items-center"><span className="font-semibold text-sm">{student?.name || 'Unknown'}</span><span className="text-xs text-slate-400 dark:text-slate-500">{new Date(r.timestamp).toLocaleDateString()}</span></div>
                 <div className="flex gap-4 text-sm"><span>Score: <strong>{r.score}/{r.totalQuestions}</strong></span><span>Level: <strong>L{r.recommendedLevel}.{r.recommendedSubLevel ?? 0}</strong></span></div>
-                
+
                 <div className="bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-lg p-3">
                   <span className="text-[9px] font-mono font-bold uppercase text-slate-400 dark:text-slate-500 tracking-wider">Evaluation Report Narrative</span>
                   <p className="text-xs text-slate-600 dark:text-slate-300 mt-1 leading-relaxed whitespace-pre-line">{r.narrative}</p>
                 </div>
 
-                <div className="flex flex-wrap gap-2">{Object.entries(r.conceptMastery).map(([t, m]) => (
+                <div className="flex flex-wrap gap-2">{Object.entries(r.conceptMastery ?? {}).map(([t, m]) => (
                   <span key={t} className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded ${m === 'Strong' ? 'bg-green-50 dark:bg-green-950 text-green-700 dark:text-green-300 border border-green-200 dark:border-green-800' : m === 'Satisfactory' ? 'bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800' : 'bg-red-50 dark:bg-red-950 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-800'}`}>{t}: {m}</span>
                 ))}</div>
 

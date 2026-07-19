@@ -1,9 +1,65 @@
 import httpStatus from 'http-status';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import { execSync } from 'child_process';
+import mongoose from 'mongoose';
 import { StudentRepository } from '../repositories/student.repository';
 import { ClassRepository } from '../repositories/class.repository';
 import { SchoolRepository } from '../repositories/school.repository';
 import { IStudent, IStudentDocument } from '../interfaces/student.interface';
+import { IEvaluationReport } from '../interfaces/evaluation-report.interface';
+import { Question } from '../db';
 import { AppError } from '../middlewares/errorHandler';
+import { generateDiagnosticPaper } from '../paperGenerator';
+import { evaluateAIDiagnostic } from '../gemini';
+import { generateQuestionsForLevel } from '../levelGenerator';
+import { EvaluationReport } from '../models/evaluation-report.model';
+
+// ----- Diagnostic submission response shapes (legacy parity) -----
+
+/** Identical to the legacy handler's `evaluation` triple (index.ts:771). */
+export interface IDiagnosticEvaluation {
+  score: number;
+  recommendedLevel: number;
+  narrative: string;
+}
+
+/** Identical to the legacy handler's `diagnosticPaper` object (index.ts:540). */
+export interface IDiagnosticPaper {
+  id: string;
+  studentId: string;
+  studentName: string;
+  questions: Question[];
+  pdfUrl: string;
+}
+
+/** Single-shape logbook row. Matches the legacy `dbStore.addLog` envelope. */
+interface IDiagnosticLogEntry {
+  id: string;
+  timestamp: string;
+  schoolId: string;
+  schoolName: string;
+  userId: string;
+  userEmail: string;
+  userRole: string;
+  activityType: string;
+  status: string;
+  details: string;
+}
+
+/**
+ * Acting-user shape used by the diagnostic methods. Mirrors the slice of
+ * `req.user` (AuthPayload in `middlewares/auth.ts`) that the legacy
+ * `getAuthUser` exposed (`{ id, email, role, schoolId }`). The legacy
+ * `user.id` maps to `req.user.userId` in the modular auth middleware.
+ */
+interface IDiagnosticActingUser {
+  userId: string;
+  email: string;
+  role: string;
+  schoolId: string;
+}
 
 /**
  * Profile response shape returned by `getStudentProfile`.
@@ -406,5 +462,476 @@ export class StudentService {
     }
 
     return updated;
+  }
+
+  // ====================================================================
+  //  Onboarding Diagnostic surface
+  //  (ports of legacy src/index.ts:497-781 — POST /api/students/:id/diagnostic
+  //   and POST /api/students/:id/diagnostic/submit)
+  // ====================================================================
+  //
+  // These methods do not change the existing Student CRUD behaviour; they
+  // add two new endpoints that the frontend already calls from
+  // `components/DiagnosticWorkflow.tsx` and `components/IcrScanner.tsx`.
+  //
+  // Persistence layout is intentionally unchanged from the legacy
+  // implementation:
+  //   - student update: routed through `StudentRepository.updateById`
+  //     (the one Student-specific repository, already in the module).
+  //   - evaluation report: written via the existing `EvaluationReport`
+  //     Mongoose model (same physical collection the modular Reports
+  //     panel reads via `EvaluationReportRepository.findAll`).
+  //   - logbook row: written via the existing raw-collection
+  //     `db.collection('logbook').insertOne(...)` mechanism, identical
+  //     to `repositories/diagnostic.repository.ts:appendLogbook` \u2014
+  //     we don't duplicate that one-liner in the Student repository.
+  //
+  // Error handling: this service throws `AppError(404, 'Student not found.')`
+  // to match the legacy handler's `res.status(404).json({ error: 'Student not found.' })`
+  // contract. The controller translates the AppError into the `{ error }`
+  // wire envelope the frontend expects (see
+  // `frontend/src/components/DiagnosticWorkflow.tsx:39`).
+  //
+  // Auth: both endpoints sit behind the existing
+  // `router.use(authenticate)` in `student.routes.ts`, so `req.user` is
+  // always populated and we just read `userId/email/role/schoolId` from
+  // the `actingUser` shape that the controller forwards.
+
+  /**
+   * Faithful port of legacy `index.ts:497-556` —
+   * POST /api/students/:id/diagnostic.
+   *
+   * Tries the Puppeteer-rendered PDF worksheet generator first; on any
+   * failure (e.g. Chromium not installed in CI), falls back to a 12-question
+   * mock paper drawn from `generateQuestionsForLevel` over the class's
+   * level band. Either path produces the same wire shape.
+   *
+   * Returns the student (echo of the lookup) plus the freshly-generated
+   * `diagnosticPaper` object the frontend consumes in
+   * `DiagnosticWorkflow.tsx`. Identical to legacy lines 540-558.
+   *
+   * Throws `AppError(404)` when the student does not exist.
+   */
+  async generateDiagnostic(
+    studentId: string,
+    _actingUser: IDiagnosticActingUser
+  ): Promise<{ student: IStudent; diagnosticPaper: IDiagnosticPaper }> {
+    const student = await this.repository.findById(studentId);
+    if (!student) {
+      throw new AppError('Student not found.', httpStatus.NOT_FOUND);
+    }
+
+    const classNumber = this.parseClassNumber(student.classGroup);
+
+    let questions: Question[] = [];
+    let pdfUrl = '';
+
+    try {
+      // Generate the official PDF worksheet paper via Puppeteer
+      // (legacy `index.ts:507-525`).
+      const result = await generateDiagnosticPaper({
+        classNumber,
+        students: [
+          {
+            name: student.name,
+            studentId: student.id,
+            qrData: {
+              age: student.age,
+              classGroup: student.classGroup,
+              section: student.section,
+              schoolId: student.schoolId,
+              currentLevel: student.currentLevel,
+              currentSubLevel: student.currentSubLevel ?? 0,
+              targetLevel: student.targetLevel,
+              streak: student.streak ?? 0,
+            },
+          },
+        ],
+      });
+      questions = (result.questions as Question[]) || [];
+      pdfUrl = `/output/${result.fileName}`;
+    } catch (err) {
+      // Puppeteer unavailable / Chromium not installed -> mock questions
+      // from the level generator (legacy `index.ts:533-547`).
+      // eslint-disable-next-line no-console
+      console.error(
+        'Puppeteer paper generation failed, using level generator mock:',
+        err
+      );
+      const startLevel = (classNumber - 1) * 12 + 1;
+      questions = [];
+      for (let lvl = startLevel; lvl < startLevel + 8; lvl++) {
+        const lvlQuestions = generateQuestionsForLevel(Math.min(lvl, 59), 0);
+        lvlQuestions.forEach(q => {
+          questions.push({
+            ...q,
+            question_id: `DIAG_${lvl}_${q.question_id}`,
+            source_level: Math.min(lvl, 59),
+          });
+        });
+      }
+      questions = questions.slice(0, 12);
+    }
+
+    return {
+      student,
+      diagnosticPaper: {
+        id: 'diag_' + student.id + '_' + Date.now(),
+        studentId: student.id,
+        studentName: student.name,
+        questions,
+        pdfUrl,
+      },
+    };
+  }
+
+  /**
+   * Faithful port of legacy `index.ts:591-781` —
+   * POST /api/students/:id/diagnostic/submit.
+   *
+   * Pipeline (legacy verbatim):
+   *   1. Resolve student (404 if missing).
+   *   2. Write the per-student `student_responses/class_<n>/phrase_1/<id>.json`
+   *      file under `backend/evaluation_metrics/...` (the same layout
+   *      legacy `index.ts:606-628` produced).
+   *   3. Run `python run_pipeline.py <n> phrase_1 <id>` followed by the
+   *      best-effort `python personalized_evaluation_pipeline.py ...`.
+   *   4. Read `<id>_evaluation_<date>.json` and `<id>_report_<date>.txt`
+   *      to derive the score, recommendedLevel, and narrative.
+   *   5. On any pipeline failure, fall back to `evaluateAIDiagnostic`
+   *      from the existing `gemini.ts` helper (legacy `index.ts:678-685`).
+   *   6. Compute the `subLevel` (Mastery=0 / Easier=1 / Remedial=2) from
+   *      the `source_level === recommendedLevel` question outcomes.
+   *   7. Update the student via `StudentRepository.updateById` with the
+   *      new `currentLevel`, `currentSubLevel`, `targetLevel =
+   *      Math.min(59, recommendedLevel + 1)`, and `levelHistory` push.
+   *   8. Build the `conceptMastery` map from defaults + the optional
+   *      `topics_to_focus` overlay in the pipeline eval JSON.
+   *   9. Insert the report via the existing `EvaluationReport` Mongoose
+   *      model (`db.collection('evaluationReports')`).
+   *  10. Append a logbook row via the existing raw `logbook` collection
+   *      write pattern (same one-liner as the bulk diagnostic
+   *      `appendLogbook` helper).
+   *
+   * Returns the legacy wire envelope `{ student, evaluation: { score,
+   * recommendedLevel, narrative }, report }` (legacy `index.ts:771`).
+   *
+   * Auth: the request must already have been authenticated upstream by
+   * the slice-level `router.use(authenticate)` so `actingUser` is
+   * populated.
+   */
+  async submitDiagnostic(
+    studentId: string,
+    body: { questions: Question[]; answers: Record<string, string> },
+    actingUser: IDiagnosticActingUser
+  ): Promise<{
+    student: IStudent;
+    evaluation: IDiagnosticEvaluation;
+    report: IEvaluationReport;
+  }> {
+    const student = await this.repository.findById(studentId);
+    if (!student) {
+      throw new AppError('Student not found.', httpStatus.NOT_FOUND);
+    }
+
+    const { questions, answers } = body;
+    const classNumber = this.parseClassNumber(student.classGroup);
+
+    // Connect to Python Evaluation Metrics Pipeline (legacy 606-628)
+    const dateStr = new Date().toISOString().split('T')[0];
+    const pipelineDir = path.join(this.backendRoot(), 'evaluation_metrics');
+    const responseDir = path.join(
+      pipelineDir,
+      'student_responses',
+      `class_${classNumber}`,
+      'phrase_1'
+    );
+    fs.mkdirSync(responseDir, { recursive: true });
+
+    // Map answers sequentially (any question_id -> Q1, Q2, Q3...)
+    const pipelineAnswers: { [qId: string]: { answer: string; confidence: number } } = {};
+    questions.forEach((q, idx) => {
+      const qNum = idx + 1;
+      const pipelineQId = `Q${qNum}`;
+      const submitted = (answers[q.question_id] || '').trim();
+      pipelineAnswers[pipelineQId] = {
+        answer: String(submitted),
+        confidence: 0.95,
+      };
+    });
+
+    const studentResponse = {
+      student_id: student.id,
+      student_name: student.name,
+      enrolled_class: classNumber,
+      test_date: dateStr,
+      phrase: 'phrase_1',
+      exam_id: `C${classNumber}_WORKSHEET_PHRASE_1`,
+      answers: pipelineAnswers,
+    };
+
+    const responsePath = path.join(responseDir, `${student.id}.json`);
+    fs.writeFileSync(responsePath, JSON.stringify(studentResponse, null, 2));
+
+    let score = 0;
+    let recommendedLevel = 1;
+    let narrative = '';
+
+    try {
+      // eslint-disable-next-line no-console
+      console.log(`Running evaluation pipeline for student ${student.id}...`);
+
+      // Run the comparison, evaluation, and report card generation
+      // pipeline (legacy 635-650).
+      execSync(`python run_pipeline.py ${classNumber} phrase_1 ${student.id}`, {
+        cwd: pipelineDir,
+        env: { ...process.env, PYTHONIOENCODING: 'utf-8' },
+      });
+
+      // Personalized exam pipeline too (best-effort; legacy 652-660).
+      try {
+        execSync(
+          `python personalized_evaluation_pipeline.py ${student.id} ${classNumber} phrase_1`,
+          {
+            cwd: pipelineDir,
+            env: { ...process.env, PYTHONIOENCODING: 'utf-8' },
+          }
+        );
+      } catch (pexErr) {
+        // eslint-disable-next-line no-console
+        console.warn('Personalized exam generation skipped or failed:', pexErr);
+      }
+
+      // Read evaluation result JSON and report text (legacy 663-680).
+      const evalReportPath = path.join(
+        pipelineDir,
+        'evaluation_reports',
+        `class_${classNumber}`,
+        'phrase_1',
+        'evaluation',
+        `${student.id}_evaluation_${dateStr}.json`
+      );
+      const reportTxtPath = path.join(
+        pipelineDir,
+        'evaluation_reports',
+        `class_${classNumber}`,
+        'phrase_1',
+        'reports',
+        `${student.id}_report_${dateStr}.txt`
+      );
+
+      if (fs.existsSync(evalReportPath)) {
+        const evalData = JSON.parse(fs.readFileSync(evalReportPath, 'utf-8'));
+        score = evalData.total_questions - (evalData.wrong_count || 0);
+
+        const levelStr = String(evalData.demonstrated_level || '1');
+        const lvlMatch = levelStr.match(/\d+/);
+        if (lvlMatch) {
+          const matchedNum = parseInt(lvlMatch[0], 10);
+          if (levelStr.toLowerCase().includes('class')) {
+            recommendedLevel = (matchedNum - 1) * 10 + 1;
+          } else {
+            recommendedLevel = matchedNum;
+          }
+        } else {
+          recommendedLevel = 1;
+        }
+      }
+
+      if (fs.existsSync(reportTxtPath)) {
+        narrative = fs.readFileSync(reportTxtPath, 'utf-8');
+      }
+    } catch (pipelineErr) {
+      // Fallback to Gemini AI if Python pipeline fails
+      // (legacy 687-693).
+      // eslint-disable-next-line no-console
+      console.error(
+        'Python evaluation pipeline failed, falling back to Gemini AI:',
+        pipelineErr
+      );
+      const evaluation = await evaluateAIDiagnostic(
+        student.name,
+        questions,
+        answers
+      );
+      score = evaluation.score;
+      recommendedLevel = evaluation.recommendedLevel;
+      narrative = evaluation.narrative;
+    }
+
+    // Determine the subLevel based on weakest-level mapping questions
+    // (legacy 700-720).
+    let subLevel = 0; // default Mastery
+    const levelQuestions = questions.filter(
+      q => q.source_level === recommendedLevel
+    );
+    if (levelQuestions.length > 0) {
+      let failedCount = 0;
+      levelQuestions.forEach(q => {
+        const submitted = (answers[q.question_id] || '').trim().toLowerCase();
+        const correct = q.answer.trim().toLowerCase();
+        if (submitted !== correct) {
+          failedCount++;
+        }
+      });
+
+      if (failedCount === levelQuestions.length) {
+        subLevel = 2; // Remedial (failed all)
+      } else if (failedCount > 0) {
+        subLevel = 1; // Easier (failed some)
+      } else {
+        subLevel = 0; // Mastery
+      }
+    }
+
+    // Update Student placing levels (legacy 723-737).
+    const levelHistory = [
+      ...(student.levelHistory || []),
+      {
+        level: recommendedLevel,
+        subLevel,
+        date: new Date().toISOString().split('T')[0],
+        reason: 'Onboarding Diagnostic Evaluation Placement',
+      },
+    ];
+
+    const updatedStudent = await this.repository.updateById(student.id, {
+      currentLevel: recommendedLevel,
+      currentSubLevel: subLevel,
+      targetLevel: Math.min(59, recommendedLevel + 1),
+      levelHistory: levelHistory as unknown as IStudent['levelHistory'],
+    });
+
+    // Build the concept-mastery map (legacy 740-757) with the optional
+    // `topics_to_focus` overlay from the pipeline evaluation JSON.
+    const conceptMastery: {
+      [topic: string]: 'Strong' | 'Needs Practice' | 'Satisfactory';
+    } = {
+      'Number Sense': recommendedLevel >= 15 ? 'Strong' : 'Needs Practice',
+      Shapes: recommendedLevel >= 25 ? 'Strong' : 'Needs Practice',
+      Fractions: recommendedLevel >= 35 ? 'Strong' : 'Needs Practice',
+      Operations: recommendedLevel >= 12 ? 'Strong' : 'Needs Practice',
+    };
+
+    try {
+      const evalReportPath = path.join(
+        pipelineDir,
+        'evaluation_reports',
+        `class_${classNumber}`,
+        'phrase_1',
+        'evaluation',
+        `${student.id}_evaluation_${dateStr}.json`
+      );
+      if (fs.existsSync(evalReportPath)) {
+        const evalData = JSON.parse(fs.readFileSync(evalReportPath, 'utf-8'));
+        if (evalData.topics_to_focus && Array.isArray(evalData.topics_to_focus)) {
+          evalData.topics_to_focus.forEach((t: string) => {
+            conceptMastery[t] = 'Needs Practice';
+          });
+        }
+      }
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.warn('Failed to parse dynamic concept mastery:', e);
+    }
+
+    const report: IEvaluationReport = {
+      id: 'rep_diag_' + Date.now(),
+      studentId: student.id,
+      worksheetId: 'diagnostic',
+      score,
+      totalQuestions: questions.length,
+      conceptMastery,
+      narrative,
+      recommendedLevel,
+      recommendedSubLevel: subLevel,
+      timestamp: new Date().toISOString(),
+    };
+
+    // Write to the same physical collection as the existing modular
+    // Reports panel reads from (EvaluationReport Mongoose model).
+    await EvaluationReport.create(report as any);
+
+    // Logbook write: use the same raw-collection pattern that the bulk
+    // diagnostic slice already uses via `diagnosticRepository.appendLogbook`.
+    // We inline the one-liner here (instead of importing across modules)
+    // so the Student module stays self-contained.
+    const logEntry: IDiagnosticLogEntry = {
+      id: 'log_' + Date.now(),
+      timestamp: new Date().toISOString(),
+      schoolId: student.schoolId,
+      schoolName: 'GPS',
+      userId: actingUser.userId,
+      userEmail: actingUser.email,
+      userRole: actingUser.role,
+      activityType: 'scan',
+      status: 'Success',
+      details: `Submitted and scored diagnostic for ${student.name}. Placed at Level ${recommendedLevel}`,
+    };
+    const mongoConn = mongoose.connection;
+    if (mongoConn && mongoConn.db) {
+      await mongoConn.db.collection('logbook').insertOne(logEntry);
+    }
+
+    return {
+      student: updatedStudent ?? student,
+      evaluation: { score, recommendedLevel, narrative },
+      report,
+    };
+  }
+
+  // ------------------------------------------------------------------
+  //  Diagnostic helpers (private)
+  // ------------------------------------------------------------------
+
+  /**
+   * Parse the integer class number out of `"Class 2"`-style strings.
+   * Identical to legacy `index.ts:500-501`.
+   */
+  private parseClassNumber(classGroup: string): number {
+    const match = (classGroup || '').match(/\d+/);
+    return match ? parseInt(match[0], 10) : 1;
+  }
+
+  /**
+   * Resolve the on-disk backend root. Legacy `index.ts:16` used
+   * `ROOT_DIR = path.resolve(__dirname, '..')` because that file lives
+   * in `src/`; this service is reached either as `src/services/...ts`
+   * (tsx/dev) or `dist/services/...js` (compiled CJS). Either way, two
+   * `..` hops land on `backend/`, the same place as legacy.
+   *
+   * Mirrors the dual-path pattern that `paperGenerator.ts:11-13` uses
+   * for the same purpose — `import.meta.url` for ESM, `__dirname` for
+   * compiled CJS. The package is `"type": "module"` so ESM is the
+   * primary; CJS is only used after esbuild compiles the bundle.
+   */
+  private backendRoot(): string {
+    // ESM path (dev/tsx keeps `import.meta.url` populated). Works
+    // because the package is `"type": "module"`. Try first since it's
+    // the most reliable — dev mode is what runs the actual diagnostic
+    // endpoint on this branch.
+    try {
+      // Guard: `import.meta.url` may be empty when esbuild compiles this
+      // file to CJS (the build emits an "empty-import-meta" warning).
+      // Skip the call in that case and fall through to the CJS branch.
+      const metaUrl = import.meta.url as unknown;
+      if (typeof metaUrl === 'string' && metaUrl.length > 0) {
+        const here = fileURLToPath(metaUrl);
+        return path.resolve(path.dirname(here), '..', '..');
+      }
+    } catch {
+      // Fall through.
+    }
+    // CJS fallback. `__dirname` is provided by the CJS runtime for
+    // every module; `process.cwd()` lands on `backend/` for both
+    // `npm run dev` and `npm run start`.
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const here = (globalThis as any).__dirname as string | undefined;
+      if (here) return path.resolve(here, '..', '..');
+    } catch {
+      // ignore
+    }
+    return path.resolve(process.cwd());
   }
 }
