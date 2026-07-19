@@ -42,3 +42,7 @@ backend/data/
 backend/dist/
 frontend/dist/
 *.log
+
+
+# Generated evaluation outputs
+backend/evaluation_metrics/
