@@ -1,8 +1,11 @@
 # FLN Contributor Onboarding
 
-**Contributor:** @sreeja37  
-**Date:** September 30, 2026  
-**Repository:** [vicharanashala/fln](https://github.com/vicharanashala/fln)  
+**Contributor:** @sreeja37
+
+**Date:** September 30, 2026
+
+**Repository:** [vicharanashala/fln](https://github.com/vicharanashala/fln)
+
 **Fork:** [sreeja37/fln](https://github.com/sreeja37/fln)
 
 ---
