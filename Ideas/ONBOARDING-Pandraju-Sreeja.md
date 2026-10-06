@@ -102,4 +102,3 @@ I have submitted contributions for issues #441, #625, and #617. The changes belo
 - Updated the database methods to support the repository's JSON fallback as well as MongoDB, and added regression tests for save/read/upsert, authentication, and cycle validation in `backend/tests/observations.test.ts`.
 - Manually verified a save, student read, class read, and repeat submission that updated the existing record. `npm run test:observations --workspace @fln/backend` passed (2 tests); `npm run build:backend` succeeded.
 
-The observation API is the foundation for the checklist, not the checklist UI or printable/scannable sheet itself. Those remain follow-up work. As required by the repository's PR review rules, service-specific persistence still needs its own runtime verification, and each PR's merged-result checks must pass before merge.
