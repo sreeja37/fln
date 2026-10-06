@@ -78,16 +78,28 @@ This is a focused review of the repository and the paths related to my contribut
 - **Why:** Authored content should reach student papers without silently falling back to an unrelated legacy source.
 - **How:** Follow issue #486: resolve the template's generation intent, question family, and visual theme at generation time, and preserve the distinction between legacy and intent-based rows.
 
-## 6. My Contribution
+## 6. My Contributions
 
-I worked on issue #617, which makes teacher observation records available through the backend API.
+I have submitted contributions for issues #441, #625, and #617. The changes below describe what the branches implement; they should not be read as a claim that the pull requests have already been merged into `main`.
+
+### Issue #441: Complete superadmin school onboarding
+
+- Added the school onboarding form to Coordinator Management, including school identity, location, postal address, government code, contacts, type/management, establishment year, initial classes, and principal account details.
+- Expanded the `School` model and `POST /api/schools` validation/persistence, kept new model fields optional for existing records, and displayed address/identifying details in school views.
+- Added principal creation/linking and initial class setup to the onboarding flow.
+- Manually created a school using the local JSON fallback. MongoDB Atlas persistence was not runtime-tested in my environment because `MONGODB_URI` was not configured.
+
+### Issue #625: Preserve optional choice error tags
+
+- Added optional `choiceErrorTags` to the question data types and database schema so a choice can carry its associated error tag without requiring tags on legacy questions.
+- Added a regression test for `GET /api/worksheets` that checks tagged questions retain their tags and older questions without tags remain readable.
+
+### Issue #617: Expose teacher observation records through the API
 
 - Added `GET /api/observations/student/:studentId?cycle=...` and `GET /api/observations/class/:classId?cycle=...`.
 - Added `POST /api/observations` to save or update a record. The backend derives teacher identity and school from the authenticated user and student rather than trusting those identity fields from the request.
-- Added validation for the cycle and rating, and access checks for the requested student and class.
-- Updated the database methods to support the repository's JSON fallback as well as MongoDB.
-- Added regression tests for save/read/upsert, authentication, and cycle validation in `backend/tests/observations.test.ts`.
+- Added cycle/rating validation and access checks for the requested student and class.
+- Updated the database methods to support the repository's JSON fallback as well as MongoDB, and added regression tests for save/read/upsert, authentication, and cycle validation in `backend/tests/observations.test.ts`.
+- Manually verified a save, student read, class read, and repeat submission that updated the existing record. `npm run test:observations --workspace @fln/backend` passed (2 tests); `npm run build:backend` succeeded.
 
-I manually verified a save, student read, class read, and repeat submission that updated the existing record. The focused test command `npm run test:observations --workspace @fln/backend` passed (2 tests), and `npm run build:backend` succeeded.
-
-The API is the foundation for the checklist, not the checklist UI or printable/scannable sheet itself. Those remain follow-up work.
+The observation API is the foundation for the checklist, not the checklist UI or printable/scannable sheet itself. Those remain follow-up work. As required by the repository's PR review rules, service-specific persistence still needs its own runtime verification, and each PR's merged-result checks must pass before merge.
