@@ -4,6 +4,7 @@ import { Student, ClassGroup, EvaluationReport, User } from '../types';
 import { ChildErrorSignature } from './MisconceptionFingerprint';
 import { IcrTwoStageScan } from './IcrTwoStageScan';
 import { BulkIcrScan, BulkChunkResult, BulkOcrResponse } from './BulkIcrScan';
+import { alignExtractedQuestions, questionsLikelyMatch } from '../utils/ocrQuestionMatching';
 
 interface IcrScannerProps {
   token: string;
@@ -313,6 +314,10 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack }) =
 
   const [extractedAnswers, setExtractedAnswers] = useState<{ [questionId: string]: string }>({});
   const [originalOcrAnswers, setOriginalOcrAnswers] = useState<{ [questionId: string]: string }>({});
+  // OCR-transcribed question text, keyed by the answer-key question id it was
+  // scanned for. Keyed rather than positional so a reordered/re-sorted question
+  // list can never compare row N against the wrong transcription.
+  const [extractedQuestions, setExtractedQuestions] = useState<Record<string, string>>({});
   const [questions, setQuestions] = useState<Array<{ id: string; question: string; correctAnswer: string; topic?: string }>>([]);
   const [report, setReport] = useState<EvaluationReport | null>(null);
   // Toggle for the "show full report card" panel below the placement
@@ -635,6 +640,7 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack }) =
       setQuestions(loadedQuestions);
       setExtractedAnswers(loadedAnswers);
       setOriginalOcrAnswers({});
+      setExtractedQuestions({});
       answerInputRefs.current = [];
       setOcrPreviewData({
         rawOcrText: '[MANUAL ENTRY — no OCR pass performed]',
@@ -661,6 +667,7 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack }) =
   const handleTwoStageResult = async (data: {
     success: boolean;
     answers?: Record<string, { value: string; confidence: number; blue_pixels: number }>;
+    extractedQuestions?: string[];
     debug?: { image_size?: [number, number]; blue_pixel_ratio?: number };
     processingTimeMs?: number;
     ocrAnalysis?: { ocrEngine?: string };
@@ -803,6 +810,7 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack }) =
     setOcrPreviewData(firstRes.ocrAnalysis);
     setExtractedAnswers(extracted);
     setOriginalOcrAnswers(extracted);
+    setExtractedQuestions(alignExtractedQuestions(loadedQuestions, data.extractedQuestions));
     setQuestions(loadedQuestions);
     setReport({
       id: 'rep_' + Date.now(),
@@ -842,6 +850,10 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack }) =
   // in the teacher's batch.
   const handleBulkOcrSuccess = (resp: BulkOcrResponse) => {
     setBulkChunkResults(resp.results || []);
+    // Bulk chunks carry no transcribed question text, so drop any left over
+    // from a previous single-sheet scan — otherwise the verify table would
+    // flag every bulk row against a stale scan's question text.
+    setExtractedQuestions({});
     setBulkMeta({
       totalPages: resp.totalPages,
       totalStudents: resp.totalStudents,
@@ -1184,6 +1196,7 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack }) =
 
   const resetScanner = () => {
     setExtractedAnswers({});
+    setExtractedQuestions({});
     setReport(null);
     setBulkResults(null);
     setUploadedFile(null);
@@ -1694,7 +1707,8 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack }) =
                 <table className="w-full text-left text-xs">
                   <thead>
                     <tr className="bg-zinc-50 dark:bg-zinc-800 border-b border-zinc-200 dark:border-zinc-700 text-zinc-500 dark:text-zinc-400 font-mono uppercase">
-                      <th className="p-3"># Item Number</th>
+                      <th className="p-3 w-20">#</th>
+                      <th className="p-3">Known Question</th>
                       <th className="p-3">Student's Response on Paper (OCR / Edit ✏️)</th>
                       <th className="p-3 text-center">Extraction Status</th>
                     </tr>
@@ -1704,11 +1718,30 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack }) =
                       if (!q) return null;
                       const userVal = extractedAnswers[q.id] || '';
                       const origVal = originalOcrAnswers[q.id] || '';
+                      const extractedQuestion = extractedQuestions[q.id] ?? '';
+                      const questionMismatch = extractedQuestion.trim().length > 0
+                        && !questionsLikelyMatch(extractedQuestion, q.question);
                       const isTeacherEdited = userVal !== origVal;
                       return (
-                        <tr key={q.id || idx} className="hover:bg-zinc-50/50 dark:hover:bg-zinc-800/40">
-                          <td className="p-3 font-medium text-zinc-900 dark:text-white">
-                            <span className="font-mono text-[10px] font-bold text-zinc-400 mr-1.5">Item #{idx + 1}</span>
+                        <tr key={q.id || idx} className={questionMismatch
+                          ? 'bg-amber-50/60 dark:bg-amber-950/20'
+                          : 'hover:bg-zinc-50/50 dark:hover:bg-zinc-800/40'}>
+                          <td className="p-3 font-mono text-[10px] font-bold text-zinc-500 dark:text-zinc-400">
+                            {idx + 1}
+                          </td>
+                          <td className="p-3 align-top">
+                            <div className="font-medium text-zinc-900 dark:text-white break-words">
+                              {q.question}
+                            </div>
+                            {questionMismatch && (
+                              <div
+                                role="alert"
+                                className="mt-2 rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-2 text-amber-900 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-200"
+                              >
+                                <div className="text-[10px] font-mono font-bold uppercase">Possible row mismatch</div>
+                                <div className="mt-1 break-words text-xs">Model saw: {extractedQuestion}</div>
+                              </div>
+                            )}
                           </td>
                           <td className="p-3">
                             <div className="relative">
