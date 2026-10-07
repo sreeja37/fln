@@ -13,6 +13,9 @@ export function registerObservationRoutes(app: express.Express) {
   app.get('/api/observations/student/:studentId', async (req, res) => {
     const user = getAuthUser(req);
     if (!user) return res.status(401).json({ error: 'Unauthorized' });
+    if (user.role === UserRole.TEACHER && user.isBanned) {
+      return res.status(403).json({ error: 'Account suspended.' });
+    }
 
     const { cycle } = req.query;
     if (!isValidCycle(cycle)) {
@@ -34,6 +37,9 @@ export function registerObservationRoutes(app: express.Express) {
   app.get('/api/observations/class/:classId', async (req, res) => {
     const user = getAuthUser(req);
     if (!user) return res.status(401).json({ error: 'Unauthorized' });
+    if (user.role === UserRole.TEACHER && user.isBanned) {
+      return res.status(403).json({ error: 'Account suspended.' });
+    }
 
     const { cycle } = req.query;
     if (!isValidCycle(cycle)) {
@@ -61,6 +67,9 @@ export function registerObservationRoutes(app: express.Express) {
   app.post('/api/observations', async (req, res) => {
     const user = getAuthUser(req);
     if (!user) return res.status(401).json({ error: 'Unauthorized' });
+    if (user.role === UserRole.TEACHER && user.isBanned) {
+      return res.status(403).json({ error: 'Account suspended.' });
+    }
 
     const { studentId, conceptId, classId, cycle, rating, notYetAssessed } = req.body ?? {};
     if (

@@ -98,3 +98,25 @@ test('observation routes require authentication and validate the cycle', async (
   const invalidCycle = await request('GET', '/api/observations/student/s1?cycle=Invalid');
   assert.equal(invalidCycle.status, 400);
 });
+
+test('banned teachers receive 403 from all observation routes', async () => {
+  await dbStore.updateUser('u6', { isBanned: true });
+  try {
+    const studentRead = await request('GET', '/api/observations/student/s1?cycle=Baseline');
+    const classRead = await request('GET', '/api/observations/class/c1?cycle=Baseline');
+    const write = await request('POST', '/api/observations', {
+      studentId: 's1',
+      conceptId: 'S3.12',
+      classId: 'c1',
+      cycle: 'Baseline',
+      rating: 'Progressive',
+      notYetAssessed: false
+    });
+
+    assert.equal(studentRead.status, 403);
+    assert.equal(classRead.status, 403);
+    assert.equal(write.status, 403);
+  } finally {
+    await dbStore.updateUser('u6', { isBanned: false });
+  }
+});

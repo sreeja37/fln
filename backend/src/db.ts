@@ -3054,20 +3054,16 @@ export class DBStore {
 
   /** One student's ratings across every observed concept, for one cycle. */
   async getObservationRecordsForStudent(studentId: string, cycle: string) {
-    if (this.mongoDb) {
-      return await this.mongoDb.collection<TeacherObservationRecord>('teacher_observation_records')
-        .find({ studentId, cycle }).toArray();
-    }
-    return (this.data?.teacherObservationRecords ?? []).filter(record => record.studentId === studentId && record.cycle === cycle);
+    if (!this.mongoDb) return (this.data?.teacherObservationRecords || []).filter(r => r.studentId === studentId && r.cycle === cycle);
+    return await this.mongoDb!.collection<TeacherObservationRecord>('teacher_observation_records')
+      .find({ studentId, cycle }).toArray();
   }
 
   /** A whole class's ratings on one concept, for one cycle -- the class-grid sheet's read path. */
   async getObservationRecordsForClass(classId: string, cycle: string) {
-    if (this.mongoDb) {
-      return await this.mongoDb.collection<TeacherObservationRecord>('teacher_observation_records')
-        .find({ classId, cycle }).toArray();
-    }
-    return (this.data?.teacherObservationRecords ?? []).filter(record => record.classId === classId && record.cycle === cycle);
+    if (!this.mongoDb) return (this.data?.teacherObservationRecords || []).filter(r => r.classId === classId && r.cycle === cycle);
+    return await this.mongoDb!.collection<TeacherObservationRecord>('teacher_observation_records')
+      .find({ classId, cycle }).toArray();
   }
 
   /**
@@ -3076,24 +3072,21 @@ export class DBStore {
    * rather than duplicating it.
    */
   async upsertObservationRecord(record: TeacherObservationRecord) {
-    if (this.mongoDb) {
-      await this.mongoDb.collection<TeacherObservationRecord>('teacher_observation_records').updateOne(
-        { studentId: record.studentId, conceptId: record.conceptId, cycle: record.cycle },
-        { $set: record },
-        { upsert: true }
-      );
+    if (!this.mongoDb) {
+      if (this.data) {
+        const list = this.data.teacherObservationRecords;
+        const idx = list.findIndex(x => x.studentId === record.studentId && x.conceptId === record.conceptId && x.cycle === record.cycle);
+        if (idx === -1) list.push(record);
+        else list[idx] = { ...list[idx], ...record };
+        await this.save();
+      }
+      return record;
     }
-    if (this.data) {
-      this.data.teacherObservationRecords ??= [];
-      const index = this.data.teacherObservationRecords.findIndex(existing =>
-        existing.studentId === record.studentId &&
-        existing.conceptId === record.conceptId &&
-        existing.cycle === record.cycle
-      );
-      if (index >= 0) this.data.teacherObservationRecords[index] = record;
-      else this.data.teacherObservationRecords.push(record);
-      if (!this.mongoDb) await this.save();
-    }
+    await this.mongoDb!.collection<TeacherObservationRecord>('teacher_observation_records').updateOne(
+      { studentId: record.studentId, conceptId: record.conceptId, cycle: record.cycle },
+      { $set: record },
+      { upsert: true }
+    );
     return record;
   }
 
