@@ -52,6 +52,7 @@ import fs from 'fs';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import { ROOT_DIR, PYTHON_BIN, AI_SERVICES_DIR } from './config';
+import { applyRequestBodyLimits } from './requestBodyLimits';
 
 // Safety net: the MongoDB driver occasionally rejects a connection AFTER
 // connectDB() has returned (the client class keeps background pools
@@ -211,8 +212,7 @@ async function startServer() {
   console.log(`[competencyPrerequisites] prerequisite graph OK — ${prereqReport.totalConceptsWithPrerequisites} concepts, ${prereqReport.totalEdges} edges, 0 unknown ids, 0 cycles`);
 
   const app = express();
-  app.use(express.json({ limit: '100mb' }));
-  app.use(express.urlencoded({ limit: '100mb', extended: true }));
+  applyRequestBodyLimits(app);
 
   // Serve Puppeteer output PDF sheets statically
   app.use('/output', express.static(path.join(ROOT_DIR, 'output')));

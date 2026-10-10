@@ -12,6 +12,7 @@
     "lint": "tsc --noEmit",
     "test:fingerprint": "tsx src/misconceptionFingerprint.test.ts",
     "test:observations": "tsx --test tests/observations.test.ts",
+    "test:request-body-limits": "tsx --test tests/request-body-limits.test.ts",
     "seed": "tsx src/seed.ts",
     "seed:html": "tsx src/seedLevelHtml.ts",
     "seed:levels": "tsx src/seedCurriculumLevels.ts",
